@@ -1,7 +1,10 @@
 // Dispara o e-mail de alerta/lembrete real quando uma notificação é criada.
 // Não é chamada pelo app — é chamada pelo Database Webhook do Supabase
-// configurado para disparar em todo INSERT na tabela `notifications`
+// configurado para disparar em todo INSERT na tabela `fluxo_notifications`
 // (Database → Webhooks no dashboard; ver checklist no DEPLOY.md).
+// IMPORTANTE: este projeto Supabase é compartilhado com outro app (Forneria
+// Original), que também tem sua própria tabela `notifications`-like. Por isso
+// todas as tabelas do Fluxo usam o prefixo `fluxo_` — nunca remova esse prefixo.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 function escapeHtml(s: string) {
@@ -31,7 +34,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceRoleKey);
     const { data: profile } = await admin
-      .from("profiles")
+      .from("fluxo_profiles")
       .select("email, name")
       .eq("id", record.member_id)
       .single();

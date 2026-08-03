@@ -13,7 +13,7 @@ function check(error) {
 /* ------------------------------- profiles / team ------------------------------- */
 
 export async function fetchTeam() {
-  const { data, error } = await supabase.from("profiles").select("*").order("created_at");
+  const { data, error } = await supabase.from("fluxo_profiles").select("*").order("created_at");
   check(error);
   return data.map((r) => ({ id: r.id, name: r.name, email: r.email, role: r.role, status: r.status }));
 }
@@ -33,23 +33,23 @@ export async function inviteTeamMember({ name, email, role }) {
 }
 
 export async function updateTeamMemberStatus(id, status) {
-  const { error } = await supabase.from("profiles").update({ status }).eq("id", id);
+  const { error } = await supabase.from("fluxo_profiles").update({ status }).eq("id", id);
   check(error);
 }
 
 export async function deleteTeamMember(id) {
-  const { error } = await supabase.from("profiles").delete().eq("id", id);
+  const { error } = await supabase.from("fluxo_profiles").delete().eq("id", id);
   check(error);
 }
 
 /** Chamada logo após o login: se o convite ainda está pendente, vira "ativo". */
 export async function activateProfileIfPending(id) {
-  const { error } = await supabase.from("profiles").update({ status: "ativo" }).eq("id", id).eq("status", "convite pendente");
+  const { error } = await supabase.from("fluxo_profiles").update({ status: "ativo" }).eq("id", id).eq("status", "convite pendente");
   check(error);
 }
 
 export async function fetchMyProfile(id) {
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("fluxo_profiles").select("*").eq("id", id).maybeSingle();
   check(error);
   return data ? { id: data.id, name: data.name, email: data.email, role: data.role, status: data.status } : null;
 }
@@ -78,18 +78,18 @@ const clientToRow = (c) => ({
 });
 
 export async function fetchClients() {
-  const { data, error } = await supabase.from("clients").select("*").order("created_at");
+  const { data, error } = await supabase.from("fluxo_clients").select("*").order("created_at");
   check(error);
   return data.map(clientFromRow);
 }
 
 export async function insertClient(client) {
-  const { error } = await supabase.from("clients").insert(clientToRow(client));
+  const { error } = await supabase.from("fluxo_clients").insert(clientToRow(client));
   check(error);
 }
 
 export async function deleteClient(id) {
-  const { error } = await supabase.from("clients").delete().eq("id", id);
+  const { error } = await supabase.from("fluxo_clients").delete().eq("id", id);
   check(error);
 }
 
@@ -115,13 +115,13 @@ const entryToRow = (e) => ({
 });
 
 export async function fetchEntries() {
-  const { data, error } = await supabase.from("entries").select("*").order("period_end");
+  const { data, error } = await supabase.from("fluxo_entries").select("*").order("period_end");
   check(error);
   return data.map(entryFromRow);
 }
 
 export async function insertEntry(entry) {
-  const { error } = await supabase.from("entries").insert(entryToRow(entry));
+  const { error } = await supabase.from("fluxo_entries").insert(entryToRow(entry));
   check(error);
 }
 
@@ -189,29 +189,29 @@ const demandToRow = (d) => ({
 });
 
 export async function fetchDemands() {
-  const { data, error } = await supabase.from("demands").select("*").order("created_at");
+  const { data, error } = await supabase.from("fluxo_demands").select("*").order("created_at");
   check(error);
   return data.map(demandFromRow);
 }
 
 export async function insertDemand(demand) {
-  const { error } = await supabase.from("demands").insert(demandToRow(demand));
+  const { error } = await supabase.from("fluxo_demands").insert(demandToRow(demand));
   check(error);
 }
 
 export async function insertDemands(demands) {
   if (!demands.length) return;
-  const { error } = await supabase.from("demands").insert(demands.map(demandToRow));
+  const { error } = await supabase.from("fluxo_demands").insert(demands.map(demandToRow));
   check(error);
 }
 
 export async function updateDemand(demand) {
-  const { error } = await supabase.from("demands").update(demandToRow(demand)).eq("id", demand.id);
+  const { error } = await supabase.from("fluxo_demands").update(demandToRow(demand)).eq("id", demand.id);
   check(error);
 }
 
 export async function deleteDemand(id) {
-  const { error } = await supabase.from("demands").delete().eq("id", id);
+  const { error } = await supabase.from("fluxo_demands").delete().eq("id", id);
   check(error);
 }
 
@@ -235,24 +235,24 @@ const notificationToRow = (n) => ({
 });
 
 export async function fetchNotifications() {
-  const { data, error } = await supabase.from("notifications").select("*").order("created_at");
+  const { data, error } = await supabase.from("fluxo_notifications").select("*").order("created_at");
   check(error);
   return data.map(notificationFromRow);
 }
 
 export async function insertNotification(notif) {
-  const { error } = await supabase.from("notifications").insert(notificationToRow(notif));
+  const { error } = await supabase.from("fluxo_notifications").insert(notificationToRow(notif));
   check(error);
 }
 
 export async function insertNotifications(notifs) {
   if (!notifs.length) return;
-  const { error } = await supabase.from("notifications").insert(notifs.map(notificationToRow));
+  const { error } = await supabase.from("fluxo_notifications").insert(notifs.map(notificationToRow));
   check(error);
 }
 
 export async function markNotificationRead(id) {
-  const { error } = await supabase.from("notifications").update({ read: true }).eq("id", id);
+  const { error } = await supabase.from("fluxo_notifications").update({ read: true }).eq("id", id);
   check(error);
 }
 
@@ -287,30 +287,30 @@ const ruleToRow = (r) => ({
 });
 
 export async function fetchRules() {
-  const { data, error } = await supabase.from("communication_rules").select("*").order("created_at");
+  const { data, error } = await supabase.from("fluxo_communication_rules").select("*").order("created_at");
   check(error);
   return data.map(ruleFromRow);
 }
 
 export async function insertRule(rule) {
-  const { error } = await supabase.from("communication_rules").insert(ruleToRow(rule));
+  const { error } = await supabase.from("fluxo_communication_rules").insert(ruleToRow(rule));
   check(error);
 }
 
 export async function updateRule(rule) {
-  const { error } = await supabase.from("communication_rules").update(ruleToRow(rule)).eq("id", rule.id);
+  const { error } = await supabase.from("fluxo_communication_rules").update(ruleToRow(rule)).eq("id", rule.id);
   check(error);
 }
 
 export async function deleteRule(id) {
-  const { error } = await supabase.from("communication_rules").delete().eq("id", id);
+  const { error } = await supabase.from("fluxo_communication_rules").delete().eq("id", id);
   check(error);
 }
 
 /* -------------------------------- rule fire log -------------------------------- */
 
 export async function fetchRuleFireLog() {
-  const { data, error } = await supabase.from("rule_fire_log").select("key");
+  const { data, error } = await supabase.from("fluxo_rule_fire_log").select("key");
   check(error);
   return data.map((r) => r.key);
 }
@@ -318,7 +318,7 @@ export async function fetchRuleFireLog() {
 export async function insertFireKeys(keys) {
   if (!keys.length) return;
   // ignora chaves que já existem (duas sessões podem detectar o mesmo disparo ao mesmo tempo)
-  const { error } = await supabase.from("rule_fire_log").upsert(
+  const { error } = await supabase.from("fluxo_rule_fire_log").upsert(
     keys.map((key) => ({ key })),
     { onConflict: "key", ignoreDuplicates: true }
   );

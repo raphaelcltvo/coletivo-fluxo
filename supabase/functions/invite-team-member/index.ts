@@ -3,7 +3,10 @@
 // Usa a service role key (secret só do servidor) para:
 //   1. criar o usuário no Supabase Auth e disparar o e-mail de convite
 //      (supabase.auth.admin.inviteUserByEmail — e-mail automático do Supabase)
-//   2. criar a linha correspondente em `profiles`
+//   2. criar a linha correspondente em `fluxo_profiles`
+// IMPORTANTE: este projeto Supabase é compartilhado com outro app (Forneria
+// Original), que também tem sua própria tabela `profiles`. Por isso todas as
+// tabelas do Fluxo usam o prefixo `fluxo_` — nunca remova esse prefixo.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -39,7 +42,7 @@ Deno.serve(async (req) => {
     const admin = createClient(supabaseUrl, serviceRoleKey);
 
     const { data: callerProfile } = await admin
-      .from("profiles")
+      .from("fluxo_profiles")
       .select("role, status")
       .eq("id", user.id)
       .single();
@@ -60,7 +63,7 @@ Deno.serve(async (req) => {
     });
     if (inviteErr) return json({ error: inviteErr.message }, 400);
 
-    const { error: profileErr } = await admin.from("profiles").insert({
+    const { error: profileErr } = await admin.from("fluxo_profiles").insert({
       id: invited.user.id,
       name: name.trim(),
       email: email.trim(),

@@ -1,5 +1,15 @@
 # Coletivo · Fluxo de demandas — deploy no GitHub Pages + Supabase
 
+## ⚠️ Este projeto Supabase é compartilhado com outro app
+O projeto Supabase usado aqui (`eaxrnxjzjotrzbuxhqmj`) também hospeda outro sistema, o
+**Forneria Original** ([gestao-operacional](https://raphaelcltvo.github.io/gestao-operacional)),
+com suas próprias tabelas (`profiles`, `insumos`, `lanches_registros`, etc). Por isso
+**toda tabela e função do Fluxo usa o prefixo `fluxo_`** (`fluxo_profiles`, `fluxo_clients`,
+`fluxo_is_admin()`...). Já aconteceu uma vez de uma migration sem prefixo colidir
+silenciosamente com a tabela `profiles` da Forneria e apagar dados de produção dela — ao
+mexer no schema deste projeto, sempre confirme o prefixo antes de rodar qualquer `create
+table`/`create function`/`drop`.
+
 ## O que mudou nesta versão
 O Fluxo agora tem **login de verdade** (e-mail/senha, via Supabase Auth) e **dados
 compartilhados de verdade** entre a equipe (banco Postgres no Supabase, em vez do
@@ -64,7 +74,7 @@ Crie uma conta em [resend.com](https://resend.com), verifique o domínio
 gere uma API key — é o valor de `RESEND_API_KEY` acima.
 
 Depois, em **Database → Webhooks** no Supabase, crie um webhook:
-- Tabela: `notifications`, evento: `INSERT`
+- Tabela: `fluxo_notifications`, evento: `INSERT`
 - Tipo: HTTP Request → aponte para a URL da função `send-alert-email`
 - Adicione o header `x-webhook-secret` com o mesmo valor de `WEBHOOK_SECRET` configurado
   acima (garante que só o próprio Supabase consegue chamar a função).
@@ -82,9 +92,9 @@ da Resend pra os e-mails de convite/redefinição de senha também saírem de
 ### 6. Criar o primeiro admin
 Como o cadastro é só por convite, o primeiríssimo acesso precisa ser criado direto no
 Supabase: **Authentication → Users → Add user** (defina um e-mail, marque "Auto Confirm
-User"), depois insira a linha correspondente na tabela `profiles` (SQL Editor):
+User"), depois insira a linha correspondente na tabela `fluxo_profiles` (SQL Editor):
 ```sql
-insert into profiles (id, name, email, role, status)
+insert into fluxo_profiles (id, name, email, role, status)
 values ('UUID-DO-USUARIO-CRIADO', 'Seu nome', 'voce@agenciacoletivo.com', 'admin', 'ativo');
 ```
 A partir daí, esse admin consegue convidar o resto da equipe normalmente pela aba Equipe.
