@@ -1,14 +1,49 @@
 # Coletivo · Fluxo de demandas — deploy no GitHub Pages + Supabase
 
-## ⚠️ Este projeto Supabase é compartilhado com outro app
-O projeto Supabase usado aqui (`eaxrnxjzjotrzbuxhqmj`) também hospeda outro sistema, o
-**Forneria Original** ([gestao-operacional](https://raphaelcltvo.github.io/gestao-operacional)),
-com suas próprias tabelas (`profiles`, `insumos`, `lanches_registros`, etc). Por isso
-**toda tabela e função do Fluxo usa o prefixo `fluxo_`** (`fluxo_profiles`, `fluxo_clients`,
-`fluxo_is_admin()`...). Já aconteceu uma vez de uma migration sem prefixo colidir
-silenciosamente com a tabela `profiles` da Forneria e apagar dados de produção dela — ao
-mexer no schema deste projeto, sempre confirme o prefixo antes de rodar qualquer `create
-table`/`create function`/`drop`.
+## Status atual (projeto Supabase dedicado)
+
+O Fluxo tem hoje o seu **próprio projeto Supabase**, separado de qualquer outro sistema:
+
+- Projeto: **FLUXO** — `https://kqakmfrhrvjdemadkqtx.supabase.co` (ref `kqakmfrhrvjdemadkqtx`)
+- Schema criado (`supabase/migrations/0001_init.sql` já rodado)
+- Edge Functions `invite-team-member` e `send-alert-email` publicadas, com os secrets
+  `ALERT_FROM_EMAIL`, `WEBHOOK_SECRET` e `RESEND_API_KEY` configurados (reaproveitando a
+  mesma conta/domínio Resend já verificado: `agenciacoletivo.com`)
+- Auth **Site URL**/**Redirect URLs** configurados para
+  `https://raphaelcltvo.github.io/coletivo-fluxo/`
+- Primeiro admin criado: convite enviado para `raphael@agenciacoletivo.com` (falta só
+  abrir o e-mail e definir a senha)
+
+**Falta só isso pra ficar 100% funcional:**
+
+1. **Atualizar 2 secrets no GitHub** (`Settings → Secrets and variables → Actions`),
+   trocando os valores pelos do projeto novo:
+   - `VITE_SUPABASE_URL` → `https://kqakmfrhrvjdemadkqtx.supabase.co`
+   - `VITE_SUPABASE_ANON_KEY` → `sb_publishable_FUbjnp9nK0hfJetUEezkRg_ODz7_sXK`
+
+   Depois de salvar os dois, dá um `git commit --allow-empty` + `git push` (ou peça pra eu
+   fazer) pra forçar o GitHub Pages a rebuildar com as novas variáveis — só editar o
+   secret não recompila o site sozinho.
+
+2. **Criar o Database Webhook** (isso o painel do Supabase precisa fazer na primeira vez,
+   não dá pra automatizar por SQL com segurança): **Database → Webhooks → Create a new
+   hook** no projeto novo:
+   - Name: `send-alert-email`
+   - Table: `fluxo_notifications`, Events: **Insert**
+   - Type: **Supabase Edge Functions** → função `send-alert-email`
+   - HTTP Headers → adicionar `x-webhook-secret` = `e9e44a1fe1e99fb7078f4a9ad2289e6eaad9501d51d70355a40f2a7ba0f8c86d`
+
+Depois desses dois passos: abra o e-mail de convite, defina sua senha, logue no site, e
+teste um alerta pra confirmar que o e-mail chega.
+
+## Histórico: por que existe um projeto dedicado
+
+O Fluxo começou num projeto Supabase que já hospedava outro sistema (Forneria Original).
+Isso causou uma colisão de nomes de tabela (`profiles`) que corrompeu dados de produção
+da Forneria — corrigido, mas para eliminar esse risco de vez o Fluxo foi migrado para um
+projeto Supabase próprio (acima). Não há mais nenhuma tabela do Fluxo no projeto
+compartilhado com a Forneria — as tabelas `fluxo_*` que ficaram lá (vazias) podem ser
+removidas quando quiser, sem pressa.
 
 ## O que mudou nesta versão
 O Fluxo agora tem **login de verdade** (e-mail/senha, via Supabase Auth) e **dados
@@ -18,7 +53,7 @@ cadastra a pessoa na aba Equipe e ela recebe um e-mail com um link para definir 
 
 Alertas de métrica e lembretes de prazo continuam aparecendo no sino da plataforma como
 antes, e agora também disparam um **e-mail de verdade** para a pessoa responsável (via
-Resend), assim que a trilha de configuração abaixo estiver completa.
+Resend).
 
 **Login com Google** ainda não está implementado (ficou para uma próxima etapa — o botão
 pode ser adicionado nas configurações de Auth do Supabase + um pequeno ajuste na tela de
@@ -40,7 +75,7 @@ no Supabase (pg_cron + Edge Function).
 - O navegador conversa direto com o Supabase usando a "anon key" (pública por design — a
   segurança de verdade vem das regras de RLS no banco, não do sigilo dessa chave).
 
-## Passo a passo para publicar
+## Passo a passo para publicar (referência, caso precise refazer do zero)
 
 ### 1. Banco de dados (Supabase)
 No SQL Editor do seu projeto Supabase, rode o conteúdo de
@@ -48,8 +83,8 @@ No SQL Editor do seu projeto Supabase, rode o conteúdo de
 tabelas, ativa RLS e as policies de acesso.
 
 ### 2. Variáveis de ambiente
-Em **Project Settings → API** no Supabase, copie a **Project URL** e a **anon public
-key**.
+Em **Project Settings → API** no Supabase, copie a **Project URL** e a **anon public /
+publishable key**.
 - Local: copie [`.env.local.example`](.env.local.example) para `.env.local` e preencha.
 - GitHub Actions: no repositório, **Settings → Secrets and variables → Actions**, crie os
   secrets `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com os mesmos valores.
@@ -62,10 +97,11 @@ supabase link --project-ref SEU-PROJECT-REF
 supabase functions deploy invite-team-member
 supabase functions deploy send-alert-email
 ```
-Depois, configure os secrets que as functions usam (**Project Settings → API** tem a
-`service_role key`; a `RESEND_API_KEY` você pega depois de criar a conta na Resend):
+Depois, configure os secrets que as functions usam (a `service_role key` já vem injetada
+automaticamente pelo Supabase, não precisa configurar; a `RESEND_API_KEY` você pega
+depois de criar a conta na Resend):
 ```bash
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY=... RESEND_API_KEY=... ALERT_FROM_EMAIL=alertas@agenciacoletivo.com WEBHOOK_SECRET=escolha-uma-senha-aleatoria-aqui
+supabase secrets set RESEND_API_KEY=... ALERT_FROM_EMAIL=alertas@agenciacoletivo.com WEBHOOK_SECRET=escolha-uma-senha-aleatoria-aqui
 ```
 
 ### 4. E-mail de alerta (Resend)
@@ -128,3 +164,5 @@ Abre em `http://localhost:5173`. Sem sessão, aparece a tela de login.
 - Mover o motor de réguas por tempo (X dias antes do prazo, dia fixo do mês) para uma
   função agendada no Supabase, pra não depender de alguém com o app aberto no navegador.
 - SMTP próprio para os e-mails de convite/redefinição de senha (passo 5 acima).
+- Remover as tabelas `fluxo_*` (vazias) que ficaram no projeto compartilhado com a
+  Forneria Original, quando quiser.
