@@ -1,34 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { storage } from "./storage.js";
+import { supabase } from "./supabaseClient.js";
+import { useSession, Login, SetPassword } from "./auth.jsx";
+import * as db from "./data.js";
+import { THEMES, VAR_KEYS, C, FONT_IMPORT, Ticket, Btn, inputStyle, Field } from "./ui.jsx";
 import {
   Users, ClipboardList, TrendingUp, Bell, FileText, MessageSquare,
   Plus, X, ChevronRight, Clock, Copy, Trash2, ArrowUpRight, ArrowDownRight,
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
-  Send, Megaphone, CalendarClock, Zap
+  Send, Megaphone, CalendarClock, Zap, LogOut
 } from "lucide-react";
-
-/* ---------------------------------------------------------------------- */
-/* THEME — values are CSS custom properties, actual colors set at root     */
-/* ---------------------------------------------------------------------- */
-const THEMES = {
-  dark: {
-    bg: "#12141B", surface: "#1A1E29", surface2: "#212636", surface3: "#2A3044",
-    border: "#2C3244", borderLight: "#3A4158", text: "#EDEEF3", muted: "#8890A6",
-    mutedDim: "#5C6478", amber: "#E8A33D", amberDim: "#3A2E1A", teal: "#3FD9A4",
-    tealDim: "#173328", red: "#EF5B54", redDim: "#3A1E1E",
-    brand: "#3D7DFF", brandDim: "#132A56", brandSoft: "#3D7DFF",
-  },
-  light: {
-    bg: "#F5F5F1", surface: "#FFFFFF", surface2: "#F1F1ED", surface3: "#E7E8E3",
-    border: "#DDDEDA", borderLight: "#C9CAC5", text: "#1B1D22", muted: "#666A70",
-    mutedDim: "#9C9FA4", amber: "#B4700F", amberDim: "#FBEBD6", teal: "#12875A",
-    tealDim: "#DEF5E9", red: "#D03F39", redDim: "#FBE1DE",
-    brand: "#0A57F5", brandDim: "#E7EEFF", brandSoft: "#0A57F5",
-  },
-};
-const VAR_KEYS = Object.keys(THEMES.dark);
-const C = Object.fromEntries(VAR_KEYS.map((k) => [k, `var(--c-${k})`]));
-const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');`;
 
 const Ring = ({ size = 18, color = "#fff", stroke = 2.4 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
@@ -357,73 +337,9 @@ function computeCrossInsights(clients, entries) {
   return insights;
 }
 
-async function loadState() {
-  try {
-    const res = await storage.get("agency-flow-state");
-    if (res && res.value) return JSON.parse(res.value);
-  } catch (e) {}
-  return null;
-}
-async function saveState(state) {
-  try {
-    await storage.set("agency-flow-state", JSON.stringify(state));
-  } catch (e) {}
-}
-
-/* ---------------------------------------------------------------------- */
-/* SEED DATA                                                                */
-/* ---------------------------------------------------------------------- */
-function seedData() {
-  const clientId = uid();
-  const unitId1 = uid();
-  const unitId2 = uid();
-  const adminId = uid();
-  const staffId = uid();
-  return {
-    theme: "light",
-    currentUserId: adminId,
-    team: [
-      { id: adminId, name: "Você", email: "voce@coletivo.com.br", role: "admin", status: "ativo" },
-      { id: staffId, name: "Ana Paula", email: "ana@coletivo.com.br", role: "atendimento", status: "ativo" },
-    ],
-    clients: [
-      {
-        id: clientId,
-        name: "Tapí Tapioca",
-        units: [
-          { id: unitId1, name: "Ipanema" },
-          { id: unitId2, name: "Leblon" },
-        ],
-        priorityMetrics: [
-          { metricId: "conversao", rank: 1, thresh: 10 },
-          { metricId: "roi", rank: 2, thresh: 15 },
-          { metricId: "gmv", rank: 3, thresh: 10 },
-        ],
-        deliverables: [
-          { id: uid(), type: "Relatório interno", freq: "Semanal" },
-          { id: uid(), type: "Dash para o cliente", freq: "Mensal" },
-        ],
-        diagnosis: "Rede com múltiplas unidades no Rio. Foco em melhorar conversão e reduzir CPO nas unidades de menor performance.",
-        createdAt: Date.now(),
-      },
-    ],
-    entries: [],
-    demands: [],
-    notifications: [],
-    communicationRules: [],
-    ruleFireLog: [],
-  };
-}
-
 /* ---------------------------------------------------------------------- */
 /* GENERIC UI ATOMS                                                        */
 /* ---------------------------------------------------------------------- */
-const Ticket = ({ children, style, ...rest }) => (
-  <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, position: "relative", ...style }} {...rest}>
-    {children}
-  </div>
-);
-
 const Badge = ({ children, tone = "muted" }) => {
   const tones = {
     muted: { bg: C.surface3, fg: C.muted },
@@ -444,49 +360,6 @@ const Badge = ({ children, tone = "muted" }) => {
       {children}
     </span>
   );
-};
-
-const Btn = ({ children, onClick, variant = "primary", style, disabled, type = "button" }) => {
-  const variants = {
-    primary: { bg: C.brand, fg: "#FFFFFF", border: "transparent" },
-    ghost: { bg: "transparent", fg: C.text, border: C.border },
-    danger: { bg: C.redDim, fg: C.red, border: "transparent" },
-    subtle: { bg: C.surface3, fg: C.text, border: "transparent" },
-  };
-  const v = variants[variant];
-  return (
-    <button
-      type={type}
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        background: v.bg, color: v.fg, border: `1px solid ${v.border}`, borderRadius: 8,
-        padding: "8px 14px", fontSize: 13, fontWeight: 600, fontFamily: "Inter, sans-serif",
-        cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
-        display: "inline-flex", alignItems: "center", gap: 6, transition: "opacity .15s, transform .1s",
-        ...style,
-      }}
-      onMouseDown={(e) => (e.currentTarget.style.transform = "scale(.97)")}
-      onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-    >
-      {children}
-    </button>
-  );
-};
-
-const Field = ({ label, children, hint }) => (
-  <div style={{ marginBottom: 14 }}>
-    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 6, fontFamily: "Inter, sans-serif", letterSpacing: 0.2 }}>
-      {label}
-    </label>
-    {children}
-    {hint && <div style={{ fontSize: 11, color: C.mutedDim, marginTop: 4 }}>{hint}</div>}
-  </div>
-);
-
-const inputStyle = {
-  width: "100%", background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8,
-  padding: "9px 11px", color: C.text, fontSize: 13, fontFamily: "Inter, sans-serif", outline: "none", boxSizing: "border-box",
 };
 
 const Modal = ({ title, onClose, children, wide }) => (
@@ -532,28 +405,29 @@ const EmptyState = ({ text }) => (
 /* ---------------------------------------------------------------------- */
 /* TOP BAR — theme toggle, viewer switch, notifications                    */
 /* ---------------------------------------------------------------------- */
-function TopBar({ theme, setTheme, team, currentUserId, setCurrentUserId, notifications, setNotifications }) {
+function TopBar({ theme, setTheme, me, notifications, setNotifications }) {
   const [open, setOpen] = useState(false);
-  const me = team.find((t) => t.id === currentUserId);
-  const myNotifs = notifications.filter((n) => n.memberId === currentUserId).sort((a, b) => b.createdAt - a.createdAt);
+  const myNotifs = notifications.filter((n) => n.memberId === me?.id).sort((a, b) => b.createdAt - a.createdAt);
   const unread = myNotifs.filter((n) => !n.read).length;
 
-  const markRead = (id) => setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  const markRead = (id) => {
+    setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    db.markNotificationRead(id).catch((e) => console.error(e));
+  };
 
   return (
     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 18 }}>
-      <select
-        style={{ ...inputStyle, width: "auto", fontSize: 12, padding: "7px 10px" }}
-        value={currentUserId}
-        onChange={(e) => setCurrentUserId(e.target.value)}
-        title="Visualizando como"
+      <div style={{ fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ color: C.text, fontWeight: 600 }}>{me?.name}</span>
+        <span>({me?.role === "admin" ? "Admin" : "Atendimento"})</span>
+      </div>
+      <button
+        onClick={() => supabase.auth.signOut()}
+        style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+        title="Sair"
       >
-        {team.filter((t) => t.status === "ativo").map((t) => (
-          <option key={t.id} value={t.id}>
-            Ver como: {t.name} ({t.role === "admin" ? "Admin" : "Atendimento"})
-          </option>
-        ))}
-      </select>
+        <LogOut size={15} color={C.muted} />
+      </button>
 
       <div style={{ position: "relative" }}>
         <button
@@ -684,14 +558,29 @@ function AccessForm({ onSave, onClose }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("atendimento");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleCreate = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await db.inviteTeamMember({ name: name.trim(), email: email.trim(), role });
+      onSave({ id: res.id, name: name.trim(), email: email.trim(), role, status: "convite pendente" });
+    } catch (e) {
+      setError(e.message || "Não foi possível enviar o convite.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal title="Novo acesso" onClose={onClose}>
       <Field label="Nome">
         <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome da pessoa" />
       </Field>
-      <Field label="E-mail" hint="Usado para identificar a pessoa e montar o link de notificação por e-mail.">
-        <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nome@coletivo.com.br" />
+      <Field label="E-mail" hint="A pessoa recebe um e-mail do Supabase com um link para definir a própria senha.">
+        <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nome@agenciacoletivo.com" />
       </Field>
       <Field label="Perfil de acesso">
         <select style={inputStyle} value={role} onChange={(e) => setRole(e.target.value)}>
@@ -699,13 +588,11 @@ function AccessForm({ onSave, onClose }) {
           <option value="admin">Admin (Gestor) — acesso completo</option>
         </select>
       </Field>
+      {error && <div style={{ fontSize: 12, color: C.red, marginBottom: 12 }}>{error}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
-        <Btn
-          disabled={!name.trim() || !email.trim()}
-          onClick={() => onSave({ id: uid(), name: name.trim(), email: email.trim(), role, status: "convite pendente" })}
-        >
-          Criar acesso
+        <Btn disabled={busy || !name.trim() || !email.trim()} onClick={handleCreate}>
+          {busy ? "Enviando convite..." : "Convidar"}
         </Btn>
       </div>
     </Modal>
@@ -716,8 +603,16 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
   const [showForm, setShowForm] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [msgDraft, setMsgDraft] = useState("");
-  const toggleStatus = (id) => setTeam((t) => t.map((m) => (m.id === id ? { ...m, status: m.status === "ativo" ? "inativo" : "ativo" } : m)));
-  const remove = (id) => setTeam((t) => t.filter((m) => m.id !== id));
+  const toggleStatus = (id) => {
+    const m = team.find((x) => x.id === id);
+    const status = m.status === "ativo" ? "inativo" : "ativo";
+    setTeam((t) => t.map((x) => (x.id === id ? { ...x, status } : x)));
+    db.updateTeamMemberStatus(id, status).catch((e) => console.error(e));
+  };
+  const remove = (id) => {
+    setTeam((t) => t.filter((m) => m.id !== id));
+    db.deleteTeamMember(id).catch((e) => console.error(e));
+  };
 
   return (
     <div>
@@ -728,7 +623,7 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
       />
       <div style={{ background: C.brandDim, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: C.text, marginBottom: 18, display: "flex", gap: 10 }}>
         <Lock size={15} color={C.brand} style={{ flexShrink: 0, marginTop: 1 }} />
-        <span>Este protótipo não guarda senha real — cada acesso fica <b>convite pendente</b> até ser ligado a um sistema de login de verdade. O papel (Admin/Atendimento) já define o que cada pessoa enxerga no menu.</span>
+        <span>Login real por e-mail e senha. A pessoa fica <b>convite pendente</b> até abrir o e-mail e definir a senha. O papel (Admin/Atendimento) define o que cada pessoa enxerga no menu.</span>
       </div>
       <div style={{ display: "grid", gap: 10 }}>
         {team.map((m) => {
@@ -884,8 +779,15 @@ function RuleForm({ team, onSave, onClose }) {
 
 function RulesView({ team, rules, setRules }) {
   const [showForm, setShowForm] = useState(false);
-  const toggle = (id) => setRules((rs) => rs.map((r) => (r.id === id ? { ...r, active: !r.active } : r)));
-  const remove = (id) => setRules((rs) => rs.filter((r) => r.id !== id));
+  const toggle = (id) => {
+    const rule = { ...rules.find((r) => r.id === id), active: !rules.find((r) => r.id === id).active };
+    setRules((rs) => rs.map((r) => (r.id === id ? rule : r)));
+    db.updateRule(rule).catch((e) => console.error(e));
+  };
+  const remove = (id) => {
+    setRules((rs) => rs.filter((r) => r.id !== id));
+    db.deleteRule(id).catch((e) => console.error(e));
+  };
   const memberName = (id) => team.find((t) => t.id === id)?.name;
 
   return (
@@ -914,7 +816,7 @@ function RulesView({ team, rules, setRules }) {
           </Ticket>
         ))}
       </div>
-      {showForm && <RuleForm team={team} onClose={() => setShowForm(false)} onSave={(r) => { setRules((rs) => [...rs, r]); setShowForm(false); }} />}
+      {showForm && <RuleForm team={team} onClose={() => setShowForm(false)} onSave={(r) => { setRules((rs) => [...rs, r]); db.insertRule(r).catch((e) => console.error(e)); setShowForm(false); }} />}
     </div>
   );
 }
@@ -1037,7 +939,10 @@ function ClientForm({ team, onSave, onClose }) {
 function ClientsView({ clients, setClients, team }) {
   const [showForm, setShowForm] = useState(false);
   const [expanded, setExpanded] = useState(null);
-  const removeClient = (id) => setClients((cs) => cs.filter((c) => c.id !== id));
+  const removeClient = (id) => {
+    setClients((cs) => cs.filter((c) => c.id !== id));
+    db.deleteClient(id).catch((e) => console.error(e));
+  };
   const ownerName = (id) => team.find((t) => t.id === id)?.name;
 
   return (
@@ -1089,7 +994,7 @@ function ClientsView({ clients, setClients, team }) {
           );
         })}
       </div>
-      {showForm && <ClientForm team={team} onClose={() => setShowForm(false)} onSave={(c) => { setClients((cs) => [...cs, c]); setShowForm(false); }} />}
+      {showForm && <ClientForm team={team} onClose={() => setShowForm(false)} onSave={(c) => { setClients((cs) => [...cs, c]); db.insertClient(c).catch((e) => console.error(e)); setShowForm(false); }} />}
     </div>
   );
 }
@@ -1113,7 +1018,9 @@ function MetricsView({ clients, entries, setEntries }) {
 
   const handleSave = () => {
     if (!clientId || !unitId || !periodEnd) return;
-    setEntries((es) => [...es, { id: uid(), clientId, unitId, periodStart, periodEnd, metrics: { ...values }, createdAt: Date.now() }]);
+    const entry = { id: uid(), clientId, unitId, periodStart, periodEnd, metrics: { ...values }, createdAt: Date.now() };
+    setEntries((es) => [...es, entry]);
+    db.insertEntry(entry).catch((e) => console.error(e));
     setValues({});
     setPeriodStart("");
     setPeriodEnd("");
@@ -1636,39 +1543,52 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role }
 function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules }) {
   const [showForm, setShowForm] = useState(false);
 
+  // Grava as notificações no banco (dispara o e-mail de alerta via Database
+  // Webhook -> Edge Function send-alert-email). Só é chamada depois que a
+  // demanda referenciada já existe no banco, pra não violar a FK.
+  const pushNotifications = (notifs) => {
+    if (!notifs.length) return;
+    setNotifications((ns) => [...ns, ...notifs]);
+    db.insertNotifications(notifs).catch((e) => console.error(e));
+  };
   const pushNotification = (memberId, message, demandId) => {
     if (!memberId) return;
-    setNotifications((ns) => [...ns, { id: uid(), memberId, message, demandId, read: false, createdAt: Date.now() }]);
+    pushNotifications([{ id: uid(), memberId, message, demandId, read: false, createdAt: Date.now() }]);
   };
 
   const update = (d) => {
-    setDemands((ds) => {
-      const prev = ds.find((x) => x.id === d.id);
-      let next = ds.map((x) => (x.id === d.id ? d : x));
-      const client = clients.find((c) => c.id === d.clientId);
-      // custom réguas: status changed
-      if (prev && prev.status !== d.status) {
-        evaluateActionRules(rules, "status_mudou", d, client, { newStatus: d.status }).forEach((n) => setNotifications((ns) => [...ns, n]));
-      }
-      // comprovação reprovada pelo gestor — avisa quem executou
-      if (prev && prev.proofStatus !== "reprovada" && d.proofStatus === "reprovada") {
-        pushNotification(d.assigneeId, `Comprovação reprovada: refaça "${d.title}" e reenvie.`, d.id);
-      }
-      // spawn next occurrence for recurring cobrança demands
-      if (prev && prev.status !== "concluida" && d.status === "concluida" && d.type === "cobranca" && d.recurring?.enabled) {
-        const nextDue = addInterval(d.dueDate, d.recurring.freq);
-        const clone = { ...d, id: uid(), status: "aberta", dueDate: nextDue, actions: [], proof: null, proofStatus: "pendente", createdAt: Date.now() };
-        next = [...next, clone];
-        pushNotification(d.assigneeId, `Nova cobrança recorrente: "${d.title}" — prazo ${nextDue}`, clone.id);
-      }
-      return next;
-    });
+    const prev = demands.find((x) => x.id === d.id);
+    setDemands((ds) => ds.map((x) => (x.id === d.id ? d : x)));
+    db.updateDemand(d).catch((e) => console.error(e));
+
+    const client = clients.find((c) => c.id === d.clientId);
+    if (prev && prev.status !== d.status) {
+      pushNotifications(evaluateActionRules(rules, "status_mudou", d, client, { newStatus: d.status }));
+    }
+    if (prev && prev.proofStatus !== "reprovada" && d.proofStatus === "reprovada") {
+      pushNotification(d.assigneeId, `Comprovação reprovada: refaça "${d.title}" e reenvie.`, d.id);
+    }
+    // spawn next occurrence for recurring cobrança demands
+    if (prev && prev.status !== "concluida" && d.status === "concluida" && d.type === "cobranca" && d.recurring?.enabled) {
+      const nextDue = addInterval(d.dueDate, d.recurring.freq);
+      const clone = { ...d, id: uid(), status: "aberta", dueDate: nextDue, actions: [], proof: null, proofStatus: "pendente", createdAt: Date.now() };
+      setDemands((ds) => [...ds, clone]);
+      db.insertDemand(clone)
+        .then(() => pushNotification(d.assigneeId, `Nova cobrança recorrente: "${d.title}" — prazo ${nextDue}`, clone.id))
+        .catch((e) => console.error(e));
+    }
   };
-  const remove = (id) => setDemands((ds) => ds.filter((x) => x.id !== id));
+  const remove = (id) => {
+    setDemands((ds) => ds.filter((x) => x.id !== id));
+    db.deleteDemand(id).catch((e) => console.error(e));
+  };
 
   const generateDashes = () => {
     const created = generateDashDemandsForMonth(clients, demands);
-    if (created.length) setDemands((ds) => [...ds, ...created]);
+    if (created.length) {
+      setDemands((ds) => [...ds, ...created]);
+      db.insertDemands(created).catch((e) => console.error(e));
+    }
   };
 
   const generateRoutines = () => {
@@ -1677,16 +1597,23 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
     const created = [...weekly, ...daily];
     if (created.length) {
       setDemands((ds) => [...ds, ...created]);
-      created.forEach((d) => pushNotification(d.assigneeId, `Rotina do dia: "${d.title}"`, d.id));
+      db.insertDemands(created)
+        .then(() => pushNotifications(created.filter((d) => d.assigneeId).map((d) => ({ id: uid(), memberId: d.assigneeId, message: `Rotina do dia: "${d.title}"`, demandId: d.id, read: false, createdAt: Date.now() }))))
+        .catch((e) => console.error(e));
     }
   };
 
   const saveNew = (d) => {
     setDemands((ds) => [...ds, d]);
-    if (d.assigneeId) pushNotification(d.assigneeId, `Nova demanda atribuída: "${d.title}"${d.dueDate ? " — prazo " + d.dueDate : ""}`, d.id);
-    const client = clients.find((c) => c.id === d.clientId);
-    evaluateActionRules(rules, "demanda_criada", d, client).forEach((n) => setNotifications((ns) => [...ns, n]));
     setShowForm(false);
+    db.insertDemand(d)
+      .then(() => {
+        const client = clients.find((c) => c.id === d.clientId);
+        const notifs = evaluateActionRules(rules, "demanda_criada", d, client);
+        if (d.assigneeId) notifs.push({ id: uid(), memberId: d.assigneeId, message: `Nova demanda atribuída: "${d.title}"${d.dueDate ? " — prazo " + d.dueDate : ""}`, demandId: d.id, read: false, createdAt: Date.now() });
+        pushNotifications(notifs);
+      })
+      .catch((e) => console.error(e));
   };
 
   const notifyAboutDemand = (d) => {
@@ -1855,77 +1782,109 @@ function ReportsView({ clients, entries, demands }) {
 /* APP                                                                      */
 /* ---------------------------------------------------------------------- */
 export default function App() {
+  const { session, loading: sessionLoading, authEvent } = useSession();
+  const [theme, setTheme] = useState(() => localStorage.getItem("coletivo-fluxo:theme") || "light");
   const [tab, setTab] = useState("clientes");
-  const [theme, setTheme] = useState("light");
+  const [myProfile, setMyProfile] = useState(null);
   const [clients, setClients] = useState([]);
   const [entries, setEntries] = useState([]);
   const [demands, setDemands] = useState([]);
   const [team, setTeam] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [currentUserId, setCurrentUserId] = useState("");
   const [communicationRules, setCommunicationRules] = useState([]);
   const [ruleFireLog, setRuleFireLog] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const s = await loadState();
-      const seed = seedData();
-      if (s) {
-        setTheme(s.theme || "light");
-        setClients(s.clients || []);
-        setEntries(s.entries || []);
-        setDemands(s.demands || []);
-        setTeam(s.team && s.team.length ? s.team : seed.team);
-        setNotifications(s.notifications || []);
-        setCurrentUserId(s.currentUserId || (s.team && s.team[0]?.id) || seed.currentUserId);
-        setCommunicationRules(s.communicationRules || []);
-        setRuleFireLog(s.ruleFireLog || []);
-      } else {
-        setTheme(seed.theme);
-        setClients(seed.clients);
-        setEntries(seed.entries);
-        setDemands(seed.demands);
-        setTeam(seed.team);
-        setNotifications(seed.notifications);
-        setCurrentUserId(seed.currentUserId);
-        setCommunicationRules(seed.communicationRules);
-        setRuleFireLog(seed.ruleFireLog);
-      }
-      setLoaded(true);
-    })();
-  }, []);
+    localStorage.setItem("coletivo-fluxo:theme", theme);
+  }, [theme]);
 
+  // Depois do login: garante que o convite vira "ativo" e carrega todos os
+  // dados compartilhados do time. Reseta se a sessão mudar (login/logout).
   useEffect(() => {
-    if (loaded) saveState({ theme, clients, entries, demands, team, notifications, currentUserId, communicationRules, ruleFireLog });
-  }, [theme, clients, entries, demands, team, notifications, currentUserId, communicationRules, ruleFireLog, loaded]);
+    if (!session) {
+      setMyProfile(null);
+      setLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        await db.activateProfileIfPending(session.user.id);
+        const profile = await db.fetchMyProfile(session.user.id);
+        if (cancelled) return;
+        setMyProfile(profile);
+        if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData] = await Promise.all([
+          db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
+          db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
+        ]);
+        if (cancelled) return;
+        setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
+        setTeam(teamData); setNotifications(notifsData); setCommunicationRules(rulesData);
+        setRuleFireLog(fireLogData);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session]);
+
+  // Mantém os dados sincronizados entre todo mundo logado ao mesmo tempo.
+  useEffect(() => {
+    if (!loaded || !myProfile || myProfile.status !== "ativo") return;
+    const subs = [
+      ["clients", setClients, db.fetchClients],
+      ["entries", setEntries, db.fetchEntries],
+      ["demands", setDemands, db.fetchDemands],
+      ["notifications", setNotifications, db.fetchNotifications],
+      ["profiles", setTeam, db.fetchTeam],
+      ["communication_rules", setCommunicationRules, db.fetchRules],
+    ].map(([table, setter, fetcher]) =>
+      supabase
+        .channel(`sync-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+          fetcher().then(setter).catch((e) => console.error(e));
+        })
+        .subscribe()
+    );
+    return () => subs.forEach((ch) => supabase.removeChannel(ch));
+  }, [loaded, myProfile?.status]);
 
   const alertCount = useMemo(() => computeAlerts(clients, entries).length, [clients, entries]);
-  const me = team.find((t) => t.id === currentUserId);
-  const role = me?.role === "admin" ? "admin" : "atendimento";
-  const demandCount = (role === "admin" ? demands : demands.filter((d) => d.assigneeId === currentUserId)).filter((d) => d.status !== "concluida").length;
+  const role = myProfile?.role === "admin" ? "admin" : "atendimento";
+  const demandCount = (role === "admin" ? demands : demands.filter((d) => d.assigneeId === myProfile?.id)).filter((d) => d.status !== "concluida").length;
 
-  const createDemandFromAlert = useCallback((d) => setDemands((ds) => [...ds, d]), []);
+  const createDemandFromAlert = useCallback((d) => {
+    setDemands((ds) => [...ds, d]);
+    db.insertDemand(d).catch((e) => console.error(e));
+  }, []);
 
   const manualNotify = useCallback((memberId, message, demandId) => {
-    setNotifications((ns) => [...ns, { id: uid(), memberId, message, demandId, read: false, createdAt: Date.now() }]);
+    const notif = { id: uid(), memberId, message, demandId, read: false, createdAt: Date.now() };
+    setNotifications((ns) => [...ns, notif]);
+    db.insertNotification(notif).catch((e) => console.error(e));
   }, []);
 
   // time-based réguas: check once per load / whenever demands or rules change
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !myProfile || myProfile.status !== "ativo") return;
     const { notifs, newKeys } = evaluateTimeRules(communicationRules, clients, demands, ruleFireLog);
     if (notifs.length) {
       setNotifications((ns) => [...ns, ...notifs]);
       setRuleFireLog((fl) => [...fl, ...newKeys]);
+      db.insertNotifications(notifs).catch((e) => console.error(e));
+      db.insertFireKeys(newKeys).catch((e) => console.error(e));
     }
     // eslint-disable-next-line
-  }, [loaded, demands.length, communicationRules.length]);
+  }, [loaded, myProfile?.status, demands.length, communicationRules.length]);
 
   // alerta_disparado réguas: fire once per unique alert key
   const alerts = useMemo(() => computeAlerts(clients, entries), [clients, entries]);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !myProfile || myProfile.status !== "ativo") return;
     const activeAlertRules = communicationRules.filter((r) => r.active && r.trigger === "alerta_disparado");
     if (activeAlertRules.length === 0 || alerts.length === 0) return;
     const newNotifs = [];
@@ -1942,16 +1901,40 @@ export default function App() {
     if (newNotifs.length) {
       setNotifications((ns) => [...ns, ...newNotifs]);
       setRuleFireLog((fl) => [...fl, ...newKeys]);
+      db.insertNotifications(newNotifs).catch((e) => console.error(e));
+      db.insertFireKeys(newKeys).catch((e) => console.error(e));
     }
     // eslint-disable-next-line
-  }, [loaded, alerts.length, communicationRules.length]);
+  }, [loaded, myProfile?.status, alerts.length, communicationRules.length]);
 
   useEffect(() => {
     const allowed = (role === "admin" ? NAV_ADMIN : NAV_STAFF).map((n) => n.id);
     if (!allowed.includes(tab)) setTab(allowed[0]);
   }, [role]); // eslint-disable-line
 
+  if (sessionLoading) return null;
+
+  if (authEvent === "PASSWORD_RECOVERY") {
+    return <SetPassword theme={theme} onDone={() => window.location.assign(window.location.pathname)} />;
+  }
+  if (!session) return <Login theme={theme} />;
   if (!loaded) return null;
+  if (!myProfile) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif" }}>
+        Sua conta não tem um acesso configurado no Fluxo. Peça para o admin te convidar pela aba Equipe.
+        <button onClick={() => supabase.auth.signOut()} style={{ marginLeft: 10 }}>Sair</button>
+      </div>
+    );
+  }
+  if (myProfile.status !== "ativo") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif" }}>
+        Seu acesso está desativado. Fale com o admin da conta.
+        <button onClick={() => supabase.auth.signOut()} style={{ marginLeft: 10 }}>Sair</button>
+      </div>
+    );
+  }
 
   const rootVars = {};
   VAR_KEYS.forEach((k) => (rootVars[`--c-${k}`] = THEMES[theme][k]));
@@ -1961,11 +1944,11 @@ export default function App() {
       <style>{FONT_IMPORT}</style>
       <Sidebar tab={tab} setTab={setTab} alertCount={alertCount} demandCount={demandCount} role={role} />
       <div style={{ flex: 1, padding: "22px 32px", overflowX: "hidden" }}>
-        <TopBar theme={theme} setTheme={setTheme} team={team} currentUserId={currentUserId} setCurrentUserId={setCurrentUserId} notifications={notifications} setNotifications={setNotifications} />
+        <TopBar theme={theme} setTheme={setTheme} me={myProfile} notifications={notifications} setNotifications={setNotifications} />
         {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} />}
         {tab === "metricas" && <MetricsView clients={clients} entries={entries} setEntries={setEntries} />}
         {tab === "alertas" && role === "admin" && <AlertsView clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert} />}
-        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={currentUserId} role={role} rules={communicationRules} />}
+        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} />}
         {tab === "lembretes" && <RemindersView clients={clients} />}
         {tab === "relatorios" && role === "admin" && <ReportsView clients={clients} entries={entries} demands={demands} />}
         {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} />}

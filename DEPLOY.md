@@ -1,28 +1,95 @@
-# Coletivo · Fluxo de demandas — deploy no GitHub Pages
+# Coletivo · Fluxo de demandas — deploy no GitHub Pages + Supabase
 
-## O que mudou em relação à versão do Claude
-O sistema é o mesmo, com uma única mudança técnica: onde antes ele salvava dados usando
-`window.storage` (que só existe dentro do Claude), agora ele usa `localStorage` do
-navegador (arquivo `src/storage.js`). Isso significa:
+## O que mudou nesta versão
+O Fluxo agora tem **login de verdade** (e-mail/senha, via Supabase Auth) e **dados
+compartilhados de verdade** entre a equipe (banco Postgres no Supabase, em vez do
+`localStorage` isolado por navegador). O acesso continua sendo só por convite: o admin
+cadastra a pessoa na aba Equipe e ela recebe um e-mail com um link para definir a senha.
 
-- **Cada navegador guarda seus próprios dados.** Se você usar no Chrome do seu notebook e
-  a Ana Paula usar no navegador dela, vocês NÃO veem os dados uma da outra — são cópias
-  separadas. Para dados compartilhados de verdade entre a equipe, o próximo passo seria
-  um backend com banco de dados (posso ajudar com isso depois, se quiser evoluir).
-- Se você limpar o cache/dados do navegador, os dados lançados no sistema se perdem.
-  Vale ir de vez em quando em Relatórios e guardar um print ou exportar os números
-  importantes em outro lugar, até termos um banco de dados de verdade.
+Alertas de métrica e lembretes de prazo continuam aparecendo no sino da plataforma como
+antes, e agora também disparam um **e-mail de verdade** para a pessoa responsável (via
+Resend), assim que a trilha de configuração abaixo estiver completa.
+
+**Login com Google** ainda não está implementado (ficou para uma próxima etapa — o botão
+pode ser adicionado nas configurações de Auth do Supabase + um pequeno ajuste na tela de
+login em `src/auth.jsx`, sem precisar redesenhar nada).
+
+**Limitação atual do motor de réguas:** o disparo de lembretes por prazo (X dias antes,
+dia fixo do mês) ainda roda no navegador de quem estiver com o app aberto, não em um
+servidor — ou seja, se ninguém abrir o Fluxo num determinado dia, esses lembretes
+específicos não disparam naquele dia (alertas de métrica e convites continuam
+funcionando normalmente, pois são disparados na hora, por ação de alguém). Se isso virar
+um problema no dia a dia, o próximo passo é mover essa checagem para uma função agendada
+no Supabase (pg_cron + Edge Function).
+
+## Arquitetura
+- **Frontend**: React + Vite, publicado como site estático no GitHub Pages (sem mudança).
+- **Backend**: [Supabase](https://supabase.com) — Postgres (dados), Auth (login) e Edge
+  Functions (convite de novo membro + envio do e-mail de alerta via
+  [Resend](https://resend.com)).
+- O navegador conversa direto com o Supabase usando a "anon key" (pública por design — a
+  segurança de verdade vem das regras de RLS no banco, não do sigilo dessa chave).
 
 ## Passo a passo para publicar
 
-### 1. Criar o repositório no GitHub
-No GitHub, crie um repositório novo (pode ser público ou privado — Pages funciona nos
-dois, mas repositório privado exige plano pago do GitHub para Pages). Sugestão de nome:
-`coletivo-fluxo` (se usar outro nome, ajuste a linha `base:` em `vite.config.js`).
+### 1. Banco de dados (Supabase)
+No SQL Editor do seu projeto Supabase, rode o conteúdo de
+[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) — cria as
+tabelas, ativa RLS e as policies de acesso.
 
-### 2. Subir os arquivos
-No terminal, dentro desta pasta:
+### 2. Variáveis de ambiente
+Em **Project Settings → API** no Supabase, copie a **Project URL** e a **anon public
+key**.
+- Local: copie [`.env.local.example`](.env.local.example) para `.env.local` e preencha.
+- GitHub Actions: no repositório, **Settings → Secrets and variables → Actions**, crie os
+  secrets `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com os mesmos valores.
 
+### 3. Edge Functions
+No terminal, dentro desta pasta (precisa do [Supabase CLI](https://supabase.com/docs/guides/cli)):
+```bash
+supabase login
+supabase link --project-ref SEU-PROJECT-REF
+supabase functions deploy invite-team-member
+supabase functions deploy send-alert-email
+```
+Depois, configure os secrets que as functions usam (**Project Settings → API** tem a
+`service_role key`; a `RESEND_API_KEY` você pega depois de criar a conta na Resend):
+```bash
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=... RESEND_API_KEY=... ALERT_FROM_EMAIL=alertas@agenciacoletivo.com WEBHOOK_SECRET=escolha-uma-senha-aleatoria-aqui
+```
+
+### 4. E-mail de alerta (Resend)
+Crie uma conta em [resend.com](https://resend.com), verifique o domínio
+`agenciacoletivo.com` (a própria Resend mostra os registros DNS TXT/CNAME que faltam) e
+gere uma API key — é o valor de `RESEND_API_KEY` acima.
+
+Depois, em **Database → Webhooks** no Supabase, crie um webhook:
+- Tabela: `notifications`, evento: `INSERT`
+- Tipo: HTTP Request → aponte para a URL da função `send-alert-email`
+- Adicione o header `x-webhook-secret` com o mesmo valor de `WEBHOOK_SECRET` configurado
+  acima (garante que só o próprio Supabase consegue chamar a função).
+
+### 5. Login (Supabase Auth)
+Em **Authentication → URL Configuration**, adicione a URL onde o site vai ficar
+(`https://SEU-USUARIO.github.io/coletivo-fluxo/`) tanto em **Site URL** quanto em
+**Redirect URLs** — sem isso, os links de convite/redefinição de senha não voltam pro
+app corretamente.
+
+Opcional (recomendado): em **Authentication → Emails → SMTP Settings**, configure o SMTP
+da Resend pra os e-mails de convite/redefinição de senha também saírem de
+`@agenciacoletivo.com` em vez do remetente genérico do Supabase.
+
+### 6. Criar o primeiro admin
+Como o cadastro é só por convite, o primeiríssimo acesso precisa ser criado direto no
+Supabase: **Authentication → Users → Add user** (defina um e-mail, marque "Auto Confirm
+User"), depois insira a linha correspondente na tabela `profiles` (SQL Editor):
+```sql
+insert into profiles (id, name, email, role, status)
+values ('UUID-DO-USUARIO-CRIADO', 'Seu nome', 'voce@agenciacoletivo.com', 'admin', 'ativo');
+```
+A partir daí, esse admin consegue convidar o resto da equipe normalmente pela aba Equipe.
+
+### 7. Repositório e GitHub Pages
 ```bash
 git init
 git add .
@@ -31,30 +98,23 @@ git branch -M main
 git remote add origin https://github.com/SEU-USUARIO/coletivo-fluxo.git
 git push -u origin main
 ```
-
-### 3. Ativar o GitHub Pages
 No repositório no GitHub: **Settings → Pages → Build and deployment → Source**, selecione
-**"GitHub Actions"** (não "Deploy from a branch"). O workflow que já está em
-`.github/workflows/deploy.yml` cuida do resto sozinho.
-
-### 4. Aguardar o build
-Toda vez que você der `git push` na branch `main`, o GitHub builda e publica
-automaticamente. Acompanhe em **Actions**, na aba do repositório. Quando o passo
-"deploy" ficar verde, o site estará em:
-
+**"GitHub Actions"**. O workflow em `.github/workflows/deploy.yml` builda e publica a
+cada `git push` na `main` (acompanhe em **Actions**). O site fica em:
 ```
 https://SEU-USUARIO.github.io/coletivo-fluxo/
 ```
 
-### 5. Testar localmente antes de subir (recomendado)
+### 8. Testar localmente antes de subir
 ```bash
 npm install
 npm run dev
 ```
-Abre em `http://localhost:5173`. Assim você vê se está tudo certo antes de publicar.
+Abre em `http://localhost:5173`. Sem sessão, aparece a tela de login.
 
-## Próximos ajustes possíveis (quando fizer sentido para vocês)
-- Trocar `localStorage` por um banco de dados real (Supabase, Firebase, ou backend
-  próprio) para os dados serem compartilhados entre toda a equipe, de qualquer navegador.
-- Adicionar login de verdade (hoje o "Ver como" é só uma simulação de perfil).
-- Conectar e-mail de verdade para as notificações (hoje é só o link `mailto:`).
+## Próximos ajustes possíveis
+- Login com Google (Google Cloud Console → OAuth Client → habilitar o provider Google em
+  Authentication → Providers no Supabase → adicionar o botão em `src/auth.jsx`).
+- Mover o motor de réguas por tempo (X dias antes do prazo, dia fixo do mês) para uma
+  função agendada no Supabase, pra não depender de alguém com o app aberto no navegador.
+- SMTP próprio para os e-mails de convite/redefinição de senha (passo 5 acima).
