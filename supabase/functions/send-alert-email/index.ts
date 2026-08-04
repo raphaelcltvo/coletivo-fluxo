@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const resendApiKey = Deno.env.get("RESEND_API_KEY")!;
-    const fromAddress = Deno.env.get("ALERT_FROM_EMAIL") || "alertas@agenciacoletivo.com";
+    const fromAddress = Deno.env.get("ALERT_FROM_EMAIL") || "alertas@fluxoapp.online";
 
     const admin = createClient(supabaseUrl, serviceRoleKey);
     const { data: profile } = await admin

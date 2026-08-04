@@ -7,34 +7,20 @@ O Fluxo tem hoje o seu **próprio projeto Supabase**, separado de qualquer outro
 - Projeto: **FLUXO** — `https://kqakmfrhrvjdemadkqtx.supabase.co` (ref `kqakmfrhrvjdemadkqtx`)
 - Schema criado (`supabase/migrations/0001_init.sql` já rodado)
 - Edge Functions `invite-team-member` e `send-alert-email` publicadas, com os secrets
-  `ALERT_FROM_EMAIL`, `WEBHOOK_SECRET` e `RESEND_API_KEY` configurados (reaproveitando a
-  mesma conta/domínio Resend já verificado: `agenciacoletivo.com`)
+  `ALERT_FROM_EMAIL` (`alertas@fluxoapp.online`), `WEBHOOK_SECRET` e `RESEND_API_KEY`
+  configurados — testado de ponta a ponta (e-mail chega de verdade)
 - Auth **Site URL**/**Redirect URLs** configurados para
   `https://raphaelcltvo.github.io/coletivo-fluxo/`
 - Primeiro admin criado: convite enviado para `raphael@agenciacoletivo.com` (falta só
   abrir o e-mail e definir a senha)
 
-**Falta só isso pra ficar 100% funcional:**
+**Tudo pronto e testado de ponta a ponta:** secrets do GitHub atualizados, site rebuildado,
+Database Webhook criado (`Database → Webhooks → send-alert-email`, tabela
+`fluxo_notifications`, evento Insert, header `x-webhook-secret`), e o disparo de e-mail
+testado com sucesso via Resend usando o domínio `fluxoapp.online`.
 
-1. **Atualizar 2 secrets no GitHub** (`Settings → Secrets and variables → Actions`),
-   trocando os valores pelos do projeto novo:
-   - `VITE_SUPABASE_URL` → `https://kqakmfrhrvjdemadkqtx.supabase.co`
-   - `VITE_SUPABASE_ANON_KEY` → `sb_publishable_FUbjnp9nK0hfJetUEezkRg_ODz7_sXK`
-
-   Depois de salvar os dois, dá um `git commit --allow-empty` + `git push` (ou peça pra eu
-   fazer) pra forçar o GitHub Pages a rebuildar com as novas variáveis — só editar o
-   secret não recompila o site sozinho.
-
-2. **Criar o Database Webhook** (isso o painel do Supabase precisa fazer na primeira vez,
-   não dá pra automatizar por SQL com segurança): **Database → Webhooks → Create a new
-   hook** no projeto novo:
-   - Name: `send-alert-email`
-   - Table: `fluxo_notifications`, Events: **Insert**
-   - Type: **Supabase Edge Functions** → função `send-alert-email`
-   - HTTP Headers → adicionar `x-webhook-secret` = `e9e44a1fe1e99fb7078f4a9ad2289e6eaad9501d51d70355a40f2a7ba0f8c86d`
-
-Depois desses dois passos: abra o e-mail de convite, defina sua senha, logue no site, e
-teste um alerta pra confirmar que o e-mail chega.
+Só falta abrir o e-mail de convite (`raphael@agenciacoletivo.com`) e definir a senha pra
+logar no site pela primeira vez.
 
 ## Histórico: por que existe um projeto dedicado
 
@@ -101,19 +87,23 @@ Depois, configure os secrets que as functions usam (a `service_role key` já vem
 automaticamente pelo Supabase, não precisa configurar; a `RESEND_API_KEY` você pega
 depois de criar a conta na Resend):
 ```bash
-supabase secrets set RESEND_API_KEY=... ALERT_FROM_EMAIL=alertas@agenciacoletivo.com WEBHOOK_SECRET=escolha-uma-senha-aleatoria-aqui
+supabase secrets set RESEND_API_KEY=... ALERT_FROM_EMAIL=alertas@fluxoapp.online WEBHOOK_SECRET=escolha-uma-senha-aleatoria-aqui
 ```
 
 ### 4. E-mail de alerta (Resend)
-Crie uma conta em [resend.com](https://resend.com), verifique o domínio
-`agenciacoletivo.com` (a própria Resend mostra os registros DNS TXT/CNAME que faltam) e
-gere uma API key — é o valor de `RESEND_API_KEY` acima.
+Crie uma conta em [resend.com](https://resend.com), verifique o domínio que vai usar como
+remetente (neste projeto: `fluxoapp.online` — a própria Resend mostra os registros DNS
+TXT/CNAME que faltam) e gere uma API key — é o valor de `RESEND_API_KEY` acima. Ao criar a
+key, confira se ela tem permissão pra esse domínio específico (a Resend pode restringir
+uma key a um domínio só).
 
-Depois, em **Database → Webhooks** no Supabase, crie um webhook:
-- Tabela: `fluxo_notifications`, evento: `INSERT`
-- Tipo: HTTP Request → aponte para a URL da função `send-alert-email`
-- Adicione o header `x-webhook-secret` com o mesmo valor de `WEBHOOK_SECRET` configurado
-  acima (garante que só o próprio Supabase consegue chamar a função).
+Depois, vá em **Integrations** no menu lateral do Supabase → **Database Webhooks** →
+**Install Integration** (instala a extensão `pg_net`, só na primeira vez) → aba
+**Webhooks** → crie um novo:
+- Tabela: `fluxo_notifications`, evento: **Insert**
+- Tipo: **Supabase Edge Functions** → função `send-alert-email`
+- Em **HTTP Headers**, adicione `x-webhook-secret` com o mesmo valor de `WEBHOOK_SECRET`
+  configurado acima (garante que só o próprio Supabase consegue chamar a função).
 
 ### 5. Login (Supabase Auth)
 Em **Authentication → URL Configuration**, adicione a URL onde o site vai ficar
@@ -122,8 +112,8 @@ Em **Authentication → URL Configuration**, adicione a URL onde o site vai fica
 app corretamente.
 
 Opcional (recomendado): em **Authentication → Emails → SMTP Settings**, configure o SMTP
-da Resend pra os e-mails de convite/redefinição de senha também saírem de
-`@agenciacoletivo.com` em vez do remetente genérico do Supabase.
+da Resend pra os e-mails de convite/redefinição de senha também saírem do domínio próprio
+em vez do remetente genérico do Supabase.
 
 ### 6. Criar o primeiro admin
 Como o cadastro é só por convite, o primeiríssimo acesso precisa ser criado direto no
