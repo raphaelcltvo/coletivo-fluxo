@@ -7,8 +7,10 @@ import {
   Users, ClipboardList, TrendingUp, Bell, FileText, MessageSquare,
   Plus, X, ChevronRight, Clock, Copy, Trash2, ArrowUpRight, ArrowDownRight,
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
-  Send, Megaphone, CalendarClock, Zap, LogOut
+  Send, Megaphone, CalendarClock, Zap, LogOut, Rss,
 } from "lucide-react";
+import { NovidadesView } from "./novidades.jsx";
+import { Onboarding } from "./onboarding.jsx";
 
 /* ---------------------------------------------------------------------- */
 /* METRIC DEFINITIONS                                                      */
@@ -479,6 +481,7 @@ function TopBar({ theme, setTheme, me, notifications, setNotifications }) {
 /* SIDEBAR                                                                  */
 /* ---------------------------------------------------------------------- */
 const NAV_ADMIN = [
+  { id: "novidades", label: "Novidades", icon: Rss },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "metricas", label: "Métricas", icon: TrendingUp },
   { id: "alertas", label: "Alertas", icon: Bell },
@@ -489,15 +492,17 @@ const NAV_ADMIN = [
   { id: "equipe", label: "Equipe & Acessos", icon: UserCog },
 ];
 const NAV_STAFF = [
+  { id: "novidades", label: "Novidades", icon: Rss },
   { id: "demandas", label: "Minhas demandas", icon: ClipboardList },
   { id: "metricas", label: "Métricas", icon: TrendingUp },
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
 ];
 
-function Sidebar({ tab, setTab, alertCount, demandCount, role }) {
+function Sidebar({ tab, setTab, alertCount, demandCount, role, pendingByTab = {} }) {
   const nav = role === "admin" ? NAV_ADMIN : NAV_STAFF;
   return (
     <div style={{ width: 216, flexShrink: 0, background: C.surface, borderRight: `1px solid ${C.border}`, padding: "22px 14px", display: "flex", flexDirection: "column", gap: 4, minHeight: "100%" }}>
+      <style>{`@keyframes fluxo-bolt-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 8px", marginBottom: 28 }}>
         <div style={{ width: 32, height: 32, borderRadius: 9, background: C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <Ring size={17} color="#FFFFFF" stroke={2.6} />
@@ -515,6 +520,7 @@ function Sidebar({ tab, setTab, alertCount, demandCount, role }) {
         const Icon = n.icon;
         const active = tab === n.id;
         const count = n.id === "alertas" ? alertCount : n.id === "demandas" ? demandCount : 0;
+        const pendingMsg = pendingByTab[n.id];
         return (
           <button
             key={n.id}
@@ -527,6 +533,11 @@ function Sidebar({ tab, setTab, alertCount, demandCount, role }) {
           >
             <Icon size={16} style={{ flexShrink: 0 }} />
             <span style={{ flex: 1 }}>{n.label}</span>
+            {pendingMsg && (
+              <span title={pendingMsg} style={{ display: "flex", animation: "fluxo-bolt-blink 1.3s ease-in-out infinite", flexShrink: 0 }}>
+                <Zap size={13} color={C.amber} fill={C.amber} />
+              </span>
+            )}
             {count > 0 && (
               <span style={{ background: n.id === "alertas" ? C.red : C.brand, color: "#fff", fontSize: 10.5, fontWeight: 700, borderRadius: 999, minWidth: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
                 {count}
@@ -1632,7 +1643,11 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
           ) : null
         }
       />
-      {clients.length === 0 && <EmptyState text="Cadastre um cliente primeiro." />}
+      {clients.length === 0 && role === "admin" && (
+        <div style={{ fontSize: 12, color: C.mutedDim, marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
+          <Zap size={12} color={C.amber} fill={C.amber} /> Cadastre seu primeiro cliente pela aba Clientes no menu pra começar a criar demandas.
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         {STATUSES.map((s) => {
           const items = visibleDemands.filter((d) => d.status === s.id);
@@ -1777,7 +1792,7 @@ function ReportsView({ clients, entries, demands }) {
 export default function App() {
   const { session, loading: sessionLoading, authEvent } = useSession();
   const [theme, setTheme] = useState(() => localStorage.getItem("coletivo-fluxo:theme") || "light");
-  const [tab, setTab] = useState("clientes");
+  const [tab, setTab] = useState("novidades");
   const [myProfile, setMyProfile] = useState(null);
   const [clients, setClients] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -1786,6 +1801,9 @@ export default function App() {
   const [notifications, setNotifications] = useState([]);
   const [communicationRules, setCommunicationRules] = useState([]);
   const [ruleFireLog, setRuleFireLog] = useState([]);
+  const [themes, setThemes] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [postRecipients, setPostRecipients] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -1808,14 +1826,15 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
+          db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
         setTeam(teamData); setNotifications(notifsData); setCommunicationRules(rulesData);
-        setRuleFireLog(fireLogData);
+        setRuleFireLog(fireLogData); setThemes(themesData); setPosts(postsData); setPostRecipients(postRecipientsData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -1829,12 +1848,15 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !myProfile || myProfile.status !== "ativo") return;
     const subs = [
-      ["clients", setClients, db.fetchClients],
-      ["entries", setEntries, db.fetchEntries],
-      ["demands", setDemands, db.fetchDemands],
-      ["notifications", setNotifications, db.fetchNotifications],
-      ["profiles", setTeam, db.fetchTeam],
-      ["communication_rules", setCommunicationRules, db.fetchRules],
+      ["fluxo_clients", setClients, db.fetchClients],
+      ["fluxo_entries", setEntries, db.fetchEntries],
+      ["fluxo_demands", setDemands, db.fetchDemands],
+      ["fluxo_notifications", setNotifications, db.fetchNotifications],
+      ["fluxo_profiles", setTeam, db.fetchTeam],
+      ["fluxo_communication_rules", setCommunicationRules, db.fetchRules],
+      ["fluxo_themes", setThemes, db.fetchThemes],
+      ["fluxo_posts", setPosts, db.fetchPosts],
+      ["fluxo_post_recipients", setPostRecipients, db.fetchPostRecipients],
     ].map(([table, setter, fetcher]) =>
       supabase
         .channel(`sync-${table}`)
@@ -1849,6 +1871,21 @@ export default function App() {
   const alertCount = useMemo(() => computeAlerts(clients, entries).length, [clients, entries]);
   const role = myProfile?.role === "admin" ? "admin" : "atendimento";
   const demandCount = (role === "admin" ? demands : demands.filter((d) => d.assigneeId === myProfile?.id)).filter((d) => d.status !== "concluida").length;
+
+  // Padrão geral do raiozinho: qualquer item do menu com algo pendente de resolver.
+  const pendingByTab = useMemo(() => {
+    const p = {};
+    if (role === "admin" && clients.length === 0) {
+      p.clientes = "Cadastre seu primeiro cliente para começar a usar o Fluxo.";
+    }
+    if (role === "admin") {
+      const pendingInvites = team.filter((t) => t.status === "convite pendente").length;
+      if (pendingInvites > 0) {
+        p.equipe = `${pendingInvites} convite${pendingInvites > 1 ? "s" : ""} pendente${pendingInvites > 1 ? "s" : ""} de aceite.`;
+      }
+    }
+    return p;
+  }, [role, clients.length, team]);
 
   const createDemandFromAlert = useCallback((d) => {
     setDemands((ds) => [...ds, d]);
@@ -1935,9 +1972,17 @@ export default function App() {
   return (
     <div style={{ ...rootVars, display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif" }}>
       <style>{FONT_IMPORT}</style>
-      <Sidebar tab={tab} setTab={setTab} alertCount={alertCount} demandCount={demandCount} role={role} />
+      <Sidebar tab={tab} setTab={setTab} alertCount={alertCount} demandCount={demandCount} role={role} pendingByTab={pendingByTab} />
       <div style={{ flex: 1, padding: "22px 32px", overflowX: "hidden" }}>
         <TopBar theme={theme} setTheme={setTheme} me={myProfile} notifications={notifications} setNotifications={setNotifications} />
+        {tab === "novidades" && (
+          <NovidadesView
+            posts={posts} setPosts={setPosts}
+            postRecipients={postRecipients} setPostRecipients={setPostRecipients}
+            themes={themes} setThemes={setThemes}
+            clients={clients} team={team} me={myProfile} role={role}
+          />
+        )}
         {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} />}
         {tab === "metricas" && <MetricsView clients={clients} entries={entries} setEntries={setEntries} />}
         {tab === "alertas" && role === "admin" && <AlertsView clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert} />}
@@ -1947,6 +1992,15 @@ export default function App() {
         {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} />}
         {tab === "equipe" && role === "admin" && <TeamView team={team} setTeam={setTeam} demands={demands} clients={clients} onNotify={manualNotify} />}
       </div>
+      {!myProfile.onboardedAt && (
+        <Onboarding
+          role={role}
+          onFinish={() => {
+            setMyProfile((p) => ({ ...p, onboardedAt: new Date().toISOString() }));
+            db.markOnboarded(myProfile.id).catch((e) => console.error(e));
+          }}
+        />
+      )}
     </div>
   );
 }

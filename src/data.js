@@ -51,7 +51,9 @@ export async function activateProfileIfPending(id) {
 export async function fetchMyProfile(id) {
   const { data, error } = await supabase.from("fluxo_profiles").select("*").eq("id", id).maybeSingle();
   check(error);
-  return data ? { id: data.id, name: data.name, email: data.email, role: data.role, status: data.status } : null;
+  return data
+    ? { id: data.id, name: data.name, email: data.email, role: data.role, status: data.status, onboardedAt: data.onboarded_at }
+    : null;
 }
 
 /* ---------------------------------- clients ---------------------------------- */
@@ -322,5 +324,82 @@ export async function insertFireKeys(keys) {
     keys.map((key) => ({ key })),
     { onConflict: "key", ignoreDuplicates: true }
   );
+  check(error);
+}
+
+/* ----------------------------------- themes ----------------------------------- */
+
+const themeFromRow = (r) => ({ id: r.id, name: r.name, tone: r.tone });
+const themeToRow = (t) => ({ id: t.id, name: t.name, tone: t.tone });
+
+export async function fetchThemes() {
+  const { data, error } = await supabase.from("fluxo_themes").select("*").order("name");
+  check(error);
+  return data.map(themeFromRow);
+}
+
+export async function insertTheme(theme) {
+  const { error } = await supabase.from("fluxo_themes").insert(themeToRow(theme));
+  check(error);
+}
+
+export async function deleteTheme(id) {
+  const { error } = await supabase.from("fluxo_themes").delete().eq("id", id);
+  check(error);
+}
+
+/* ----------------------------------- posts (Novidades) ----------------------------------- */
+
+const postFromRow = (r) => ({
+  id: r.id,
+  authorId: r.author_id,
+  themeId: r.theme_id || "",
+  clientId: r.client_id || "",
+  audience: r.audience,
+  message: r.message,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+});
+
+const postToRow = (p) => ({
+  id: p.id,
+  author_id: p.authorId,
+  theme_id: p.themeId || null,
+  client_id: p.clientId || null,
+  audience: p.audience || "todos",
+  message: p.message,
+});
+
+export async function fetchPosts() {
+  const { data, error } = await supabase.from("fluxo_posts").select("*").order("created_at", { ascending: false });
+  check(error);
+  return data.map(postFromRow);
+}
+
+export async function insertPost(post, recipientIds = []) {
+  const { error } = await supabase.from("fluxo_posts").insert(postToRow(post));
+  check(error);
+  if (recipientIds.length) {
+    const { error: recErr } = await supabase
+      .from("fluxo_post_recipients")
+      .insert(recipientIds.map((memberId) => ({ post_id: post.id, member_id: memberId })));
+    check(recErr);
+  }
+}
+
+export async function deletePost(id) {
+  const { error } = await supabase.from("fluxo_posts").delete().eq("id", id);
+  check(error);
+}
+
+export async function fetchPostRecipients() {
+  const { data, error } = await supabase.from("fluxo_post_recipients").select("*");
+  check(error);
+  return data.map((r) => ({ postId: r.post_id, memberId: r.member_id }));
+}
+
+/* --------------------------------- onboarding --------------------------------- */
+
+export async function markOnboarded(id) {
+  const { error } = await supabase.from("fluxo_profiles").update({ onboarded_at: new Date().toISOString() }).eq("id", id);
   check(error);
 }
