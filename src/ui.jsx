@@ -23,6 +23,13 @@ export const VAR_KEYS = Object.keys(THEMES.dark);
 export const C = Object.fromEntries(VAR_KEYS.map((k) => [k, `var(--c-${k})`]));
 export const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');`;
 
+export const Ring = ({ size = 18, color = "#fff", stroke = 2.4, className, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={{ flexShrink: 0, ...style }}>
+    <circle cx="12" cy="12" r="8.6" stroke={color} strokeWidth={stroke} />
+    <circle cx="12" cy="12" r="3" stroke={color} strokeWidth={stroke} />
+  </svg>
+);
+
 export const Ticket = ({ children, style, ...rest }) => (
   <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, position: "relative", ...style }} {...rest}>
     {children}

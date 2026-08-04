@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient.js";
-import { THEMES, VAR_KEYS, C, FONT_IMPORT, Field, inputStyle, Btn, Ticket } from "./ui.jsx";
+import { THEMES, VAR_KEYS, C, FONT_IMPORT, Field, inputStyle, Btn, Ring } from "./ui.jsx";
 
 /**
  * Sessão do Supabase Auth + o último evento disparado (útil pra distinguir
@@ -24,26 +24,73 @@ export function useSession() {
   return { session, loading: session === undefined, authEvent };
 }
 
-const shellStyle = (theme) => {
+const AUTH_CSS = `
+${FONT_IMPORT}
+.auth-wrap { min-height: 100vh; display: flex; }
+.auth-brand {
+  flex: 0 0 42%; position: relative; overflow: hidden; background: ${C.brand};
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 40px; text-align: center;
+}
+.auth-brand .ring-deco { position: absolute; opacity: 0.16; }
+.auth-brand .ring-deco.r1 { top: -60px; left: -60px; }
+.auth-brand .ring-deco.r2 { bottom: -90px; right: -70px; }
+.auth-brand .ring-mark { position: relative; z-index: 1; }
+.auth-brand .brand-word {
+  position: relative; z-index: 1; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+  font-size: 40px; color: #fff; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 22px; line-height: 1;
+}
+.auth-brand .brand-tag {
+  position: relative; z-index: 1; font-size: 12.5px; color: rgba(255,255,255,.78); font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase; margin-top: 8px;
+}
+.auth-form-col { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 24px; background: ${C.bg}; }
+.auth-form-inner { width: 100%; max-width: 360px; }
+@media (max-width: 820px) {
+  .auth-wrap { flex-direction: column; }
+  .auth-brand { flex: 0 0 auto; padding: 32px 20px; }
+  .auth-brand .brand-word { font-size: 30px; margin-top: 14px; }
+  .auth-brand .ring-mark svg { width: 56px; height: 56px; }
+  .auth-form-col { padding: 32px 20px 48px; }
+}
+`;
+
+const shellRootVars = (theme) => {
   const rootVars = {};
   VAR_KEYS.forEach((k) => (rootVars[`--c-${k}`] = THEMES[theme][k]));
-  return { ...rootVars, minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif", padding: 20 };
+  return rootVars;
 };
 
 function AuthShell({ theme, children }) {
   return (
-    <div style={shellStyle(theme)}>
-      <style>{FONT_IMPORT}</style>
-      <Ticket style={{ padding: 28, width: "100%", maxWidth: 380 }}>
-        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 26, fontWeight: 800, color: C.text, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>
-          Coletivo · Fluxo
+    <div style={{ ...shellRootVars(theme), fontFamily: "Inter, sans-serif" }}>
+      <style>{AUTH_CSS}</style>
+      <div className="auth-wrap">
+        <div className="auth-brand">
+          <Ring size={140} color="#fff" stroke={1.6} className="ring-deco r1" />
+          <Ring size={200} color="#fff" stroke={1.6} className="ring-deco r2" />
+          <div className="ring-mark">
+            <Ring size={72} color="#fff" stroke={2} />
+          </div>
+          <div className="brand-word">Coletivo</div>
+          <div className="brand-tag">Fluxo de demandas</div>
         </div>
-        <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 22 }}>Controle de demandas da equipe</div>
-        {children}
-      </Ticket>
+        <div className="auth-form-col">
+          <div className="auth-form-inner">{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
+
+const heading = (title, subtitle) => (
+  <div style={{ marginBottom: 26 }}>
+    <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 26, fontWeight: 800, color: C.text, textTransform: "uppercase", letterSpacing: 0.3 }}>
+      {title}
+    </div>
+    <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>{subtitle}</div>
+  </div>
+);
 
 export function Login({ theme = "light" }) {
   const [mode, setMode] = useState("login"); // "login" | "forgot" | "forgot_sent"
@@ -76,10 +123,11 @@ export function Login({ theme = "light" }) {
   if (mode === "forgot_sent") {
     return (
       <AuthShell theme={theme}>
+        {heading("E-mail enviado", "Confira sua caixa de entrada")}
         <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>
           Se <b>{email}</b> estiver cadastrado, enviamos um e-mail com um link para redefinir a senha.
         </div>
-        <Btn variant="ghost" style={{ marginTop: 16, width: "100%", justifyContent: "center" }} onClick={() => setMode("login")}>
+        <Btn variant="ghost" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={() => setMode("login")}>
           Voltar para o login
         </Btn>
       </AuthShell>
@@ -88,6 +136,7 @@ export function Login({ theme = "light" }) {
 
   return (
     <AuthShell theme={theme}>
+      {mode === "login" ? heading("Entrar", "Acesse sua conta do Fluxo") : heading("Redefinir senha", "Vamos te mandar um link por e-mail")}
       <Field label="E-mail">
         <input style={inputStyle} type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@agenciacoletivo.com" />
       </Field>
@@ -129,7 +178,7 @@ export function Login({ theme = "light" }) {
           </button>
         </>
       )}
-      <div style={{ fontSize: 11.5, color: C.mutedDim, marginTop: 20, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+      <div style={{ fontSize: 11.5, color: C.mutedDim, marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
         Só quem foi convidado pelo admin (aba Equipe) consegue entrar. Se você acabou de
         receber um convite, use o link do e-mail para definir sua senha antes de logar aqui.
       </div>
@@ -157,9 +206,7 @@ export function SetPassword({ theme = "light", onDone }) {
 
   return (
     <AuthShell theme={theme}>
-      <div style={{ fontSize: 13, color: C.text, marginBottom: 16, lineHeight: 1.5 }}>
-        Defina sua senha para acessar o Fluxo.
-      </div>
+      {heading("Definir senha", "Último passo pra acessar o Fluxo")}
       <Field label="Nova senha">
         <input style={inputStyle} type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} placeholder="mínimo 8 caracteres" />
       </Field>

@@ -2,20 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "./supabaseClient.js";
 import { useSession, Login, SetPassword } from "./auth.jsx";
 import * as db from "./data.js";
-import { THEMES, VAR_KEYS, C, FONT_IMPORT, Ticket, Btn, inputStyle, Field } from "./ui.jsx";
+import { THEMES, VAR_KEYS, C, FONT_IMPORT, Ticket, Btn, inputStyle, Field, Ring } from "./ui.jsx";
 import {
   Users, ClipboardList, TrendingUp, Bell, FileText, MessageSquare,
   Plus, X, ChevronRight, Clock, Copy, Trash2, ArrowUpRight, ArrowDownRight,
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
   Send, Megaphone, CalendarClock, Zap, LogOut
 } from "lucide-react";
-
-const Ring = ({ size = 18, color = "#fff", stroke = 2.4 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-    <circle cx="12" cy="12" r="8.6" stroke={color} strokeWidth={stroke} />
-    <circle cx="12" cy="12" r="3" stroke={color} strokeWidth={stroke} />
-  </svg>
-);
 
 /* ---------------------------------------------------------------------- */
 /* METRIC DEFINITIONS                                                      */
