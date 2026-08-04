@@ -32,28 +32,37 @@ ${FONT_IMPORT}
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   padding: 40px; text-align: center;
 }
-.auth-brand .ring-deco { position: absolute; opacity: 0.16; }
+.auth-brand .mural-grid {
+  position: absolute; inset: 0; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr;
+}
+.auth-brand .mural-grid img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .9; }
+.auth-brand .mural-overlay { position: absolute; inset: 0; background: ${C.brand}; opacity: .82; }
+.auth-brand .ring-deco { position: absolute; opacity: 0.16; z-index: 2; }
 .auth-brand .ring-deco.r1 { top: -60px; left: -60px; }
 .auth-brand .ring-deco.r2 { bottom: -90px; right: -70px; }
-.auth-brand .ring-mark { position: relative; z-index: 1; }
+.auth-brand .ring-mark { position: relative; z-index: 3; }
 .auth-brand .brand-word {
-  position: relative; z-index: 1; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
+  position: relative; z-index: 3; font-family: 'Barlow Condensed', sans-serif; font-weight: 800;
   font-size: 40px; color: #fff; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 22px; line-height: 1;
+  text-shadow: 0 2px 16px rgba(0,0,0,.18);
 }
 .auth-brand .brand-tag {
-  position: relative; z-index: 1; font-size: 12.5px; color: rgba(255,255,255,.78); font-weight: 600;
+  position: relative; z-index: 3; font-size: 12.5px; color: rgba(255,255,255,.85); font-weight: 600;
   letter-spacing: 2px; text-transform: uppercase; margin-top: 8px;
 }
 .auth-form-col { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 24px; background: ${C.bg}; }
 .auth-form-inner { width: 100%; max-width: 360px; }
 @media (max-width: 820px) {
   .auth-wrap { flex-direction: column; }
-  .auth-brand { flex: 0 0 auto; padding: 32px 20px; }
+  .auth-brand { flex: 0 0 auto; padding: 32px 20px; min-height: 220px; }
   .auth-brand .brand-word { font-size: 30px; margin-top: 14px; }
   .auth-brand .ring-mark svg { width: 56px; height: 56px; }
   .auth-form-col { padding: 32px 20px 48px; }
 }
 `;
+
+const MURAL_COUNT = 20;
+const muralSrc = (i) => `${import.meta.env.BASE_URL}mural/m${String(i).padStart(2, "0")}.jpg`;
 
 const shellRootVars = (theme) => {
   const rootVars = {};
@@ -67,6 +76,12 @@ function AuthShell({ theme, children }) {
       <style>{AUTH_CSS}</style>
       <div className="auth-wrap">
         <div className="auth-brand">
+          <div className="mural-grid">
+            {Array.from({ length: MURAL_COUNT }, (_, i) => (
+              <img key={i} src={muralSrc(i + 1)} alt="" loading="eager" />
+            ))}
+          </div>
+          <div className="mural-overlay" />
           <Ring size={140} color="#fff" stroke={1.6} className="ring-deco r1" />
           <Ring size={200} color="#fff" stroke={1.6} className="ring-deco r2" />
           <div className="ring-mark">
@@ -136,7 +151,7 @@ export function Login({ theme = "light" }) {
 
   return (
     <AuthShell theme={theme}>
-      {mode === "login" ? heading("Entrar", "Acesse sua conta do Fluxo") : heading("Redefinir senha", "Vamos te mandar um link por e-mail")}
+      {mode === "login" ? heading("Entrar", "Acesse sua conta do Fluxo App") : heading("Redefinir senha", "Vamos te mandar um link por e-mail")}
       <Field label="E-mail">
         <input style={inputStyle} type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@agenciacoletivo.com" />
       </Field>
