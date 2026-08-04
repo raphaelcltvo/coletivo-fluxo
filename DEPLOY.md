@@ -16,11 +16,16 @@ O Fluxo tem hoje o seu **próprio projeto Supabase**, separado de qualquer outro
 
 **Tudo pronto e testado de ponta a ponta:** secrets do GitHub atualizados, site rebuildado,
 Database Webhook criado (`Database → Webhooks → send-alert-email`, tabela
-`fluxo_notifications`, evento Insert, header `x-webhook-secret`), e o disparo de e-mail
-testado com sucesso via Resend usando o domínio `fluxoapp.online`.
+`fluxo_notifications`, evento Insert, header `x-webhook-secret`), disparo de e-mail de
+alerta testado com sucesso via Resend, e **SMTP customizado (Resend) configurado pros
+e-mails de autenticação** (convite/redefinição de senha) — o mailer padrão do Supabase é
+limitado (poucos e-mails/hora, deliverability ruim) e não é confiável pra produção.
 
 Só falta abrir o e-mail de convite (`raphael@agenciacoletivo.com`) e definir a senha pra
-logar no site pela primeira vez.
+logar no site pela primeira vez. O site de verdade é
+`https://raphaelcltvo.github.io/coletivo-fluxo/` — `fluxoapp.online` é só o domínio usado
+como remetente de e-mail, não está apontado pro site (a não ser que decidam configurar
+isso depois).
 
 ## Histórico: por que existe um projeto dedicado
 
