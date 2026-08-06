@@ -4,10 +4,10 @@ import { C, Ticket, Btn, Field, inputStyle } from "./ui.jsx";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-const TONES = { muted: C.mutedDim, amber: C.amber, teal: C.teal, red: C.red, brand: C.brand };
-const TONE_BG = { muted: C.surface3, amber: C.amberDim, teal: C.tealDim, red: C.redDim, brand: C.brandDim };
+export const TONES = { muted: C.mutedDim, amber: C.amber, teal: C.teal, red: C.red, brand: C.brand };
+export const TONE_BG = { muted: C.surface3, amber: C.amberDim, teal: C.tealDim, red: C.redDim, brand: C.brandDim };
 
-function timeAgo(ts) {
+export function timeAgo(ts) {
   const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (diffSec < 60) return "agora";
   const diffMin = Math.floor(diffSec / 60);
@@ -19,7 +19,7 @@ function timeAgo(ts) {
   return new Date(ts).toLocaleDateString("pt-BR");
 }
 
-const Avatar = ({ name, size = 32 }) => (
+export const Avatar = ({ name, size = 32 }) => (
   <div
     style={{
       width: size, height: size, borderRadius: 999, background: C.brandDim, color: C.brand,
@@ -31,7 +31,7 @@ const Avatar = ({ name, size = 32 }) => (
   </div>
 );
 
-const Tag = ({ children, tone = "muted" }) => (
+export const Tag = ({ children, tone = "muted" }) => (
   <span
     style={{
       background: TONE_BG[tone], color: TONES[tone], fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
@@ -43,9 +43,9 @@ const Tag = ({ children, tone = "muted" }) => (
 );
 
 /* ---------------------------------------------------------------------- */
-/* GERENCIAR TEMAS (admin)                                                 */
+/* GERENCIAR TEMAS/TAGS (admin) — compartilhado entre Novidades e Alertas  */
 /* ---------------------------------------------------------------------- */
-function ThemeManager({ themes, setThemes, onClose }) {
+export function ThemeManager({ themes, setThemes, onClose }) {
   const [name, setName] = useState("");
   const [tone, setTone] = useState("brand");
 
@@ -63,11 +63,11 @@ function ThemeManager({ themes, setThemes, onClose }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,13,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 50, overflowY: "auto" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,13,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 60, overflowY: "auto" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.borderLight}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: 24 }}>
-        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 16 }}>Gerenciar temas</div>
+        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 16 }}>Gerenciar tags</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <input style={{ ...inputStyle, flex: 1 }} placeholder="Nome do tema" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+          <input style={{ ...inputStyle, flex: 1 }} placeholder="Nome da tag" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
           <select style={{ ...inputStyle, width: 110 }} value={tone} onChange={(e) => setTone(e.target.value)}>
             {Object.keys(TONES).map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -80,10 +80,35 @@ function ThemeManager({ themes, setThemes, onClose }) {
               <button onClick={() => remove(t.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 12 }}>remover</button>
             </div>
           ))}
-          {themes.length === 0 && <div style={{ fontSize: 12, color: C.mutedDim }}>Nenhum tema criado ainda.</div>}
+          {themes.length === 0 && <div style={{ fontSize: 12, color: C.mutedDim }}>Nenhuma tag criada ainda.</div>}
         </div>
         <Btn variant="ghost" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={onClose}>Fechar</Btn>
       </div>
+    </div>
+  );
+}
+
+/** Seletor de tags multi-select (chips), compartilhado entre Novidades e Alertas. */
+export function TagPicker({ themes, selectedIds, onToggle }) {
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {themes.map((t) => {
+        const active = selectedIds.includes(t.id);
+        return (
+          <label
+            key={t.id}
+            style={{
+              display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer",
+              background: active ? TONE_BG[t.tone] : C.surface2, color: active ? TONES[t.tone] : C.muted,
+              border: `1px solid ${active ? TONES[t.tone] : C.border}`, borderRadius: 999, padding: "4px 10px", fontWeight: active ? 700 : 500,
+            }}
+          >
+            <input type="checkbox" checked={active} onChange={() => onToggle(t.id)} style={{ margin: 0 }} />
+            {t.name}
+          </label>
+        );
+      })}
+      {themes.length === 0 && <span style={{ fontSize: 11.5, color: C.mutedDim }}>Nenhuma tag criada ainda.</span>}
     </div>
   );
 }
@@ -93,7 +118,7 @@ function ThemeManager({ themes, setThemes, onClose }) {
 /* ---------------------------------------------------------------------- */
 function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
   const [message, setMessage] = useState("");
-  const [themeId, setThemeId] = useState("");
+  const [tagIds, setTagIds] = useState([]);
   const [clientId, setClientId] = useState("");
   const [audience, setAudience] = useState("todos");
   const [recipientIds, setRecipientIds] = useState([]);
@@ -101,15 +126,16 @@ function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
   const [busy, setBusy] = useState(false);
 
   const toggleRecipient = (id) => setRecipientIds((rs) => (rs.includes(id) ? rs.filter((r) => r !== id) : [...rs, id]));
+  const toggleTag = (id) => setTagIds((ts) => (ts.includes(id) ? ts.filter((t) => t !== id) : [...ts, id]));
 
   const publish = async () => {
     if (!message.trim()) return;
     setBusy(true);
-    const post = { id: uid(), authorId: me.id, themeId, clientId, audience, message: message.trim(), createdAt: Date.now() };
+    const post = { id: uid(), authorId: me.id, clientId, audience, message: message.trim(), createdAt: Date.now() };
     const recipients = audience === "pessoas" ? recipientIds : [];
     try {
-      await onPost(post, recipients);
-      setMessage(""); setThemeId(""); setClientId(""); setAudience("todos"); setRecipientIds([]); setExpanded(false);
+      await onPost(post, recipients, tagIds);
+      setMessage(""); setTagIds([]); setClientId(""); setAudience("todos"); setRecipientIds([]); setExpanded(false);
     } finally {
       setBusy(false);
     }
@@ -129,11 +155,10 @@ function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
       </div>
       {expanded && (
         <div style={{ marginTop: 12, paddingLeft: 42 }}>
+          <div style={{ marginBottom: 10 }}>
+            <TagPicker themes={themes} selectedIds={tagIds} onToggle={toggleTag} />
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-            <select style={{ ...inputStyle, width: "auto", flex: "1 1 140px" }} value={themeId} onChange={(e) => setThemeId(e.target.value)}>
-              <option value="">— sem tema —</option>
-              {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
             <select style={{ ...inputStyle, width: "auto", flex: "1 1 140px" }} value={clientId} onChange={(e) => setClientId(e.target.value)}>
               <option value="">— sem cliente —</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -144,7 +169,7 @@ function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
             </select>
             {role === "admin" && (
               <button onClick={onManageThemes} style={{ background: "none", border: "none", color: C.brand, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
-                Gerenciar temas
+                Gerenciar tags
               </button>
             )}
           </div>
@@ -173,7 +198,7 @@ function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
 /* ---------------------------------------------------------------------- */
 /* POST CARD                                                               */
 /* ---------------------------------------------------------------------- */
-function PostCard({ post, author, theme, client, recipients, team, me, role, onDelete }) {
+function PostCard({ post, author, tags, client, recipients, team, me, role, onDelete }) {
   const canDelete = post.authorId === me.id || role === "admin";
   return (
     <Ticket style={{ padding: 16, marginBottom: 10 }}>
@@ -191,7 +216,7 @@ function PostCard({ post, author, theme, client, recipients, team, me, role, onD
           </div>
           <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.5, marginTop: 6, whiteSpace: "pre-wrap" }}>{post.message}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-            {theme && <Tag tone={theme.tone}>{theme.name}</Tag>}
+            {tags.map((t) => <Tag key={t.id} tone={t.tone}>{t.name}</Tag>)}
             {client && <Tag tone="muted">{client.name}</Tag>}
             {post.audience === "pessoas" && (
               <Tag tone="brand">Para: {recipients.map((id) => team.find((t) => t.id === id)?.name).filter(Boolean).join(", ") || "—"}</Tag>
@@ -206,8 +231,8 @@ function PostCard({ post, author, theme, client, recipients, team, me, role, onD
 /* ---------------------------------------------------------------------- */
 /* NOVIDADES VIEW                                                          */
 /* ---------------------------------------------------------------------- */
-export function NovidadesView({ posts, setPosts, postRecipients, setPostRecipients, themes, setThemes, clients, team, me, role }) {
-  const [filterTheme, setFilterTheme] = useState("");
+export function NovidadesView({ posts, setPosts, postRecipients, setPostRecipients, postTags, setPostTags, themes, setThemes, clients, team, me, role }) {
+  const [filterTag, setFilterTag] = useState("");
   const [filterClient, setFilterClient] = useState("");
   const [filterMode, setFilterMode] = useState("tudo"); // tudo | meu | postei
   const [showThemeManager, setShowThemeManager] = useState(false);
@@ -221,9 +246,18 @@ export function NovidadesView({ posts, setPosts, postRecipients, setPostRecipien
     return map;
   }, [postRecipients]);
 
+  const tagsByPost = useMemo(() => {
+    const map = {};
+    postTags.forEach((r) => {
+      if (!map[r.postId]) map[r.postId] = [];
+      map[r.postId].push(r.themeId);
+    });
+    return map;
+  }, [postTags]);
+
   const visiblePosts = useMemo(() => {
     return posts
-      .filter((p) => !filterTheme || p.themeId === filterTheme)
+      .filter((p) => !filterTag || (tagsByPost[p.id] || []).includes(filterTag))
       .filter((p) => !filterClient || p.clientId === filterClient)
       .filter((p) => {
         if (filterMode === "postei") return p.authorId === me.id;
@@ -231,19 +265,23 @@ export function NovidadesView({ posts, setPosts, postRecipients, setPostRecipien
         return true;
       })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [posts, filterTheme, filterClient, filterMode, recipientsByPost, me.id]);
+  }, [posts, filterTag, filterClient, filterMode, recipientsByPost, tagsByPost, me.id]);
 
-  const publish = async (post, recipientIds) => {
+  const publish = async (post, recipientIds, tagIds) => {
     setPosts((ps) => [post, ...ps]);
     if (recipientIds.length) {
       setPostRecipients((rs) => [...rs, ...recipientIds.map((memberId) => ({ postId: post.id, memberId }))]);
     }
-    await db.insertPost(post, recipientIds);
+    if (tagIds.length) {
+      setPostTags((ts) => [...ts, ...tagIds.map((themeId) => ({ postId: post.id, themeId }))]);
+    }
+    await db.insertPost(post, recipientIds, tagIds);
   };
 
   const remove = (id) => {
     setPosts((ps) => ps.filter((p) => p.id !== id));
     setPostRecipients((rs) => rs.filter((r) => r.postId !== id));
+    setPostTags((ts) => ts.filter((t) => t.postId !== id));
     db.deletePost(id).catch((e) => console.error(e));
   };
 
@@ -270,8 +308,8 @@ export function NovidadesView({ posts, setPosts, postRecipients, setPostRecipien
               {label}
             </button>
           ))}
-          <select style={{ ...inputStyle, width: "auto" }} value={filterTheme} onChange={(e) => setFilterTheme(e.target.value)}>
-            <option value="">Todos os temas</option>
+          <select style={{ ...inputStyle, width: "auto" }} value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
+            <option value="">Todas as tags</option>
             {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <select style={{ ...inputStyle, width: "auto" }} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
@@ -293,7 +331,7 @@ export function NovidadesView({ posts, setPosts, postRecipients, setPostRecipien
           key={post.id}
           post={post}
           author={team.find((t) => t.id === post.authorId)}
-          theme={themes.find((t) => t.id === post.themeId)}
+          tags={(tagsByPost[post.id] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
           client={clients.find((c) => c.id === post.clientId)}
           recipients={recipientsByPost[post.id] || []}
           team={team}

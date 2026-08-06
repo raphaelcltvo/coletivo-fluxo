@@ -9,8 +9,9 @@ import {
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
   Send, Megaphone, CalendarClock, Zap, LogOut, Rss,
 } from "lucide-react";
-import { NovidadesView } from "./novidades.jsx";
+import { NovidadesView, TagPicker, ThemeManager } from "./novidades.jsx";
 import { Onboarding } from "./onboarding.jsx";
+import { ManualAlertsSection, resolveDestinoIds } from "./alerts.jsx";
 
 /* ---------------------------------------------------------------------- */
 /* METRIC DEFINITIONS                                                      */
@@ -76,6 +77,14 @@ function addInterval(dateStr, freq) {
   if (freq === "Semanal") d.setDate(d.getDate() + 7);
   else if (freq === "Quinzenal") d.setDate(d.getDate() + 14);
   else d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+/* Mesma ideia de addInterval, mas com o vocabulário usado pelos Alertas manuais. */
+function addAlertInterval(dateStr, freq) {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  if (freq === "diaria") d.setDate(d.getDate() + 1);
+  else if (freq === "semanal") d.setDate(d.getDate() + 7);
+  else if (freq === "mensal") d.setMonth(d.getMonth() + 1);
   return d.toISOString().slice(0, 10);
 }
 function nextFixedDashDate(type) {
@@ -156,9 +165,20 @@ function todayStr() {
 }
 
 /* Evaluates time-based rules (days-before-due, fixed day of month) against current demands. */
-function evaluateTimeRules(rules, clients, demands, fireLog) {
+/* Régua com action="alerta": monta um Alerta manual em vez de só uma notificação. */
+function alertFromRule(rule, message, client, viewerId) {
+  return {
+    id: uid(), title: message, description: "", alertType: rule.alertType || "relatorio",
+    clientIds: client ? [client.id] : [], destino: { memberIds: [rule._recipient] },
+    scheduledDate: todayStr(), repeatFreq: "nenhuma", status: "agendado",
+    createdBy: viewerId, createdAt: Date.now(), tagIds: rule.alertTagIds || [],
+  };
+}
+
+function evaluateTimeRules(rules, clients, demands, fireLog, viewerId) {
   const notifs = [];
   const newKeys = [];
+  const alertsToCreate = [];
   const today = new Date();
   const todayKey = todayStr();
   const monthKey = todayKey.slice(0, 7);
@@ -176,7 +196,9 @@ function evaluateTimeRules(rules, clients, demands, fireLog) {
         const recipient = rule.recipientMode === "responsavel" ? d.assigneeId : rule.recipientId;
         if (!recipient) return;
         const client = clients.find((c) => c.id === d.clientId);
-        notifs.push({ id: uid(), memberId: recipient, message: renderTemplate(rule.message, d, client), demandId: d.id, read: false, createdAt: Date.now() });
+        const message = renderTemplate(rule.message, d, client);
+        if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: recipient }, message, client, viewerId));
+        else notifs.push({ id: uid(), memberId: recipient, message, demandId: d.id, read: false, createdAt: Date.now() });
         newKeys.push(key);
       });
     }
@@ -185,24 +207,29 @@ function evaluateTimeRules(rules, clients, demands, fireLog) {
       const key = `${rule.id}:${monthKey}`;
       if (fireLog.includes(key)) return;
       if (!rule.recipientId) return;
-      notifs.push({ id: uid(), memberId: rule.recipientId, message: rule.message || rule.name, demandId: null, read: false, createdAt: Date.now() });
+      const message = rule.message || rule.name;
+      if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: rule.recipientId }, message, null, viewerId));
+      else notifs.push({ id: uid(), memberId: rule.recipientId, message, demandId: null, read: false, createdAt: Date.now() });
       newKeys.push(key);
     }
   });
-  return { notifs, newKeys };
+  return { notifs, newKeys, alertsToCreate };
 }
 
 /* Evaluates action-based rules for a single event (demand created / status changed). */
-function evaluateActionRules(rules, trigger, demand, client, extra = {}) {
+function evaluateActionRules(rules, trigger, demand, client, extra = {}, viewerId) {
   const notifs = [];
+  const alertsToCreate = [];
   rules.filter((r) => r.active && r.trigger === trigger).forEach((rule) => {
     if (trigger !== "alerta_disparado" && rule.demandTypeFilter !== "todos" && demand.type !== rule.demandTypeFilter) return;
     if (trigger === "status_mudou" && rule.statusAlvo && rule.statusAlvo !== extra.newStatus) return;
     const recipient = rule.recipientMode === "responsavel" ? demand?.assigneeId : rule.recipientId;
     if (!recipient) return;
-    notifs.push({ id: uid(), memberId: recipient, message: renderTemplate(rule.message, demand, client), demandId: demand?.id || null, read: false, createdAt: Date.now() });
+    const message = renderTemplate(rule.message, demand, client);
+    if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: recipient }, message, client, viewerId));
+    else notifs.push({ id: uid(), memberId: recipient, message, demandId: demand?.id || null, read: false, createdAt: Date.now() });
   });
-  return notifs;
+  return { notifs, alertsToCreate };
 }
 
 const REVIEW_PLATFORMS = ["iFood", "Cardápio digital", "99Food"];
@@ -691,7 +718,7 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
 /* ---------------------------------------------------------------------- */
 /* COMMUNICATION RULES VIEW                                                */
 /* ---------------------------------------------------------------------- */
-function RuleForm({ team, onSave, onClose }) {
+function RuleForm({ team, themes, onManageTags, onSave, onClose }) {
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState("dias_antes_prazo");
   const [daysBefore, setDaysBefore] = useState(2);
@@ -701,6 +728,9 @@ function RuleForm({ team, onSave, onClose }) {
   const [recipientMode, setRecipientMode] = useState("responsavel");
   const [recipientId, setRecipientId] = useState(team.find((t) => t.role === "atendimento")?.id || "");
   const [message, setMessage] = useState('Lembrete: "{titulo}" ({cliente}) — prazo {prazo}.');
+  const [action, setAction] = useState("notificacao");
+  const [alertType, setAlertType] = useState("relatorio");
+  const [alertTagIds, setAlertTagIds] = useState([]);
   const isTempoIndividual = trigger === "dias_antes_prazo" || trigger === "demanda_criada" || trigger === "status_mudou";
   const forceFixedRecipient = trigger === "dia_fixo_mes" || trigger === "alerta_disparado";
 
@@ -761,9 +791,32 @@ function RuleForm({ team, onSave, onClose }) {
         )}
       </Field>
 
-      <Field label="Mensagem" hint="Use {titulo}, {cliente} e {prazo} para preencher automaticamente (quando aplicável).">
+      <Field label="Mensagem" hint="Use {titulo}, {cliente} e {prazo} para preencher automaticamente (quando aplicável). Vira o título do alerta, se a ação abaixo for 'Criar alerta'.">
         <textarea style={{ ...inputStyle, minHeight: 60 }} value={message} onChange={(e) => setMessage(e.target.value)} />
       </Field>
+
+      <Field label="Ação ao disparar">
+        <select style={inputStyle} value={action} onChange={(e) => setAction(e.target.value)}>
+          <option value="notificacao">Notificação simples</option>
+          <option value="alerta">Criar Alerta (aparece em Novidades e, se Relatório, vira card em Demandas)</option>
+        </select>
+      </Field>
+      {action === "alerta" && (
+        <>
+          <Field label="Tipo do alerta">
+            <select style={inputStyle} value={alertType} onChange={(e) => setAlertType(e.target.value)}>
+              <option value="relatorio">Relatório — precisa de comprovação</option>
+              <option value="comunicacao">Comunicação — só avisa</option>
+            </select>
+          </Field>
+          <Field label="Tags">
+            <TagPicker themes={themes} selectedIds={alertTagIds} onToggle={(id) => setAlertTagIds((ts) => (ts.includes(id) ? ts.filter((t) => t !== id) : [...ts, id]))} />
+            <button onClick={onManageTags} style={{ background: "none", border: "none", color: C.brand, fontSize: 11.5, fontWeight: 600, cursor: "pointer", marginTop: 6, padding: 0 }}>
+              Gerenciar tags
+            </button>
+          </Field>
+        </>
+      )}
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
@@ -772,6 +825,7 @@ function RuleForm({ team, onSave, onClose }) {
           onClick={() => onSave({
             id: uid(), name: name.trim(), active: true, trigger, daysBefore: Number(daysBefore), dayOfMonth: Number(dayOfMonth),
             statusAlvo, demandTypeFilter, recipientMode: forceFixedRecipient ? "pessoa_especifica" : recipientMode, recipientId, message: message.trim(),
+            action, alertType, alertTagIds,
           })}
         >
           Criar régua
@@ -781,8 +835,9 @@ function RuleForm({ team, onSave, onClose }) {
   );
 }
 
-function RulesView({ team, rules, setRules }) {
+function RulesView({ team, rules, setRules, themes, setThemes }) {
   const [showForm, setShowForm] = useState(false);
+  const [showThemeManager, setShowThemeManager] = useState(false);
   const toggle = (id) => {
     const rule = { ...rules.find((r) => r.id === id), active: !rules.find((r) => r.id === id).active };
     setRules((rs) => rs.map((r) => (r.id === id ? rule : r)));
@@ -814,13 +869,21 @@ function RulesView({ team, rules, setRules }) {
                 {" · para "}{r.recipientMode === "responsavel" ? "responsável da demanda" : memberName(r.recipientId) || "—"}
               </div>
             </div>
+            {r.action === "alerta" && <Badge tone="brand">Cria alerta</Badge>}
             <Badge tone={r.active ? "teal" : "muted"}>{r.active ? "Ativa" : "Pausada"}</Badge>
             <Btn variant="ghost" style={{ padding: "6px 10px", fontSize: 11.5 }} onClick={() => toggle(r.id)}>{r.active ? "Pausar" : "Ativar"}</Btn>
             <button onClick={() => remove(r.id)} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer" }}><Trash2 size={15} /></button>
           </Ticket>
         ))}
       </div>
-      {showForm && <RuleForm team={team} onClose={() => setShowForm(false)} onSave={(r) => { setRules((rs) => [...rs, r]); db.insertRule(r).catch((e) => console.error(e)); setShowForm(false); }} />}
+      {showForm && (
+        <RuleForm
+          team={team} themes={themes} onManageTags={() => setShowThemeManager(true)}
+          onClose={() => setShowForm(false)}
+          onSave={(r) => { setRules((rs) => [...rs, r]); db.insertRule(r).catch((e) => console.error(e)); setShowForm(false); }}
+        />
+      )}
+      {showThemeManager && <ThemeManager themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
     </div>
   );
 }
@@ -1127,7 +1190,7 @@ function computeAlerts(clients, entries) {
   return alerts;
 }
 
-function AlertsView({ clients, entries, onCreateDemand, demands }) {
+function AlertsView({ clients, entries, onCreateDemand, demands, manualAlerts, manualAlertTags, themes, setThemes, team, me, onCreateAlert }) {
   const alerts = useMemo(() => computeAlerts(clients, entries), [clients, entries]);
   const insights = useMemo(() => computeCrossInsights(clients, entries), [clients, entries]);
   const existingAlertDemandKeys = new Set(demands.filter((d) => d.originAlertKey).map((d) => d.originAlertKey));
@@ -1135,7 +1198,12 @@ function AlertsView({ clients, entries, onCreateDemand, demands }) {
 
   return (
     <div>
-      <ViewHeader title="Alertas" subtitle="Variações fora da rotina, comparadas ao período anterior e ao mesmo período do mês anterior" />
+      <ViewHeader title="Alertas" subtitle="Crie e acompanhe alertas manuais pra equipe, além das anomalias detectadas automaticamente" />
+      <ManualAlertsSection
+        alerts={manualAlerts} alertTags={manualAlertTags} themes={themes} setThemes={setThemes}
+        clients={clients} team={team} me={me} demands={demands} onCreateAlert={onCreateAlert}
+      />
+      <ViewHeader title="Detectados automaticamente" subtitle="Variações fora da rotina, comparadas ao período anterior e ao mesmo período do mês anterior" />
       {alerts.length === 0 && <EmptyState text="Nenhum alerta no momento. Lance ao menos 2 períodos de métricas por unidade para o motor comparar." />}
       <div style={{ display: "grid", gap: 10, marginBottom: 26 }}>
         {alerts.map((a) => {
@@ -1360,7 +1428,7 @@ function DemandForm({ clients, team, onSave, onClose }) {
   );
 }
 
-function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role }) {
+function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [] }) {
   const [showAction, setShowAction] = useState(false);
   const [actionType, setActionType] = useState("");
   const [actionDesc, setActionDesc] = useState("");
@@ -1448,6 +1516,8 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role }
 
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demandTypeLabel(demand.type)}</Badge>
+        {demand.alertId && <Badge tone="brand">Alerta</Badge>}
+        {tags.map((t) => <Badge key={t.id} tone={t.tone}>{t.name}</Badge>)}
         <span style={{ fontSize: 10.5, fontWeight: 700, color: PRIORITIES[demand.priority], border: `1px solid ${PRIORITIES[demand.priority]}`, borderRadius: 999, padding: "2px 7px", textTransform: "uppercase" }}>
           {demand.priority}
         </span>
@@ -1544,8 +1614,22 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role }
   );
 }
 
-function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules }) {
+function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules, themes = [], manualAlertTags = [], onCreateAlert }) {
+  const dispatchRuleAlerts = (alertsToCreate) => {
+    alertsToCreate.forEach(({ tagIds, ...alertRow }) => onCreateAlert?.(alertRow, tagIds).catch((e) => console.error(e)));
+  };
   const [showForm, setShowForm] = useState(false);
+  const [filterTag, setFilterTag] = useState("");
+  const [filterPerson, setFilterPerson] = useState("");
+
+  const tagsByAlert = useMemo(() => {
+    const map = {};
+    manualAlertTags.forEach((r) => {
+      if (!map[r.alertId]) map[r.alertId] = [];
+      map[r.alertId].push(r.themeId);
+    });
+    return map;
+  }, [manualAlertTags]);
 
   // Grava as notificações no banco (dispara o e-mail de alerta via Database
   // Webhook -> Edge Function send-alert-email). Só é chamada depois que a
@@ -1567,7 +1651,9 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
 
     const client = clients.find((c) => c.id === d.clientId);
     if (prev && prev.status !== d.status) {
-      pushNotifications(evaluateActionRules(rules, "status_mudou", d, client, { newStatus: d.status }));
+      const { notifs, alertsToCreate } = evaluateActionRules(rules, "status_mudou", d, client, { newStatus: d.status }, currentUserId);
+      pushNotifications(notifs);
+      if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
     }
     if (prev && prev.proofStatus !== "reprovada" && d.proofStatus === "reprovada") {
       pushNotification(d.assigneeId, `Comprovação reprovada: refaça "${d.title}" e reenvie.`, d.id);
@@ -1580,6 +1666,24 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       db.insertDemand(clone)
         .then(() => pushNotification(d.assigneeId, `Nova cobrança recorrente: "${d.title}" — prazo ${nextDue}`, clone.id))
         .catch((e) => console.error(e));
+    }
+    // card de Alerta concluído: a notificação de sino correspondente "sai"
+    // (marca como lida), e — se o alerta era recorrente — nasce a próxima
+    // ocorrência só pra essa pessoa (recorrência por pessoa).
+    if (prev && prev.status !== "concluida" && d.status === "concluida" && d.alertId) {
+      const notif = notifications.find((n) => n.demandId === d.id && n.memberId === d.assigneeId);
+      if (notif && !notif.read) {
+        setNotifications((ns) => ns.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
+        db.markNotificationRead(notif.id).catch((e) => console.error(e));
+      }
+      if (d.recurring?.enabled) {
+        const nextDue = addAlertInterval(d.dueDate, d.recurring.freq);
+        const clone = { ...d, id: uid(), status: "aberta", dueDate: nextDue, actions: [], proof: null, proofStatus: "pendente", createdAt: Date.now() };
+        setDemands((ds) => [...ds, clone]);
+        db.insertDemand(clone)
+          .then(() => pushNotification(d.assigneeId, `Alerta: "${d.title}"`, clone.id))
+          .catch((e) => console.error(e));
+      }
     }
   };
   const remove = (id) => {
@@ -1613,9 +1717,10 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
     db.insertDemand(d)
       .then(() => {
         const client = clients.find((c) => c.id === d.clientId);
-        const notifs = evaluateActionRules(rules, "demanda_criada", d, client);
+        const { notifs, alertsToCreate } = evaluateActionRules(rules, "demanda_criada", d, client, {}, currentUserId);
         if (d.assigneeId) notifs.push({ id: uid(), memberId: d.assigneeId, message: `Nova demanda atribuída: "${d.title}"${d.dueDate ? " — prazo " + d.dueDate : ""}`, demandId: d.id, read: false, createdAt: Date.now() });
         pushNotifications(notifs);
+        if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
       })
       .catch((e) => console.error(e));
   };
@@ -1626,7 +1731,9 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
     pushNotification(d.assigneeId, `Lembrete de ${role === "admin" ? "gestão" : "equipe"}: "${d.title}" (${client?.name})`, d.id);
   };
 
-  const visibleDemands = role === "admin" ? demands : demands.filter((d) => d.assigneeId === currentUserId);
+  let visibleDemands = role === "admin" ? demands : demands.filter((d) => d.assigneeId === currentUserId);
+  if (role === "admin" && filterTag) visibleDemands = visibleDemands.filter((d) => (tagsByAlert[d.alertId] || []).includes(filterTag));
+  if (role === "admin" && filterPerson) visibleDemands = visibleDemands.filter((d) => d.assigneeId === filterPerson);
 
   return (
     <div>
@@ -1648,6 +1755,18 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
           <Zap size={12} color={C.amber} fill={C.amber} /> Cadastre seu primeiro cliente pela aba Clientes no menu pra começar a criar demandas.
         </div>
       )}
+      {role === "admin" && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <select style={{ ...inputStyle, width: "auto" }} value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
+            <option value="">Todas as tags</option>
+            {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <select style={{ ...inputStyle, width: "auto" }} value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)}>
+            <option value="">Todas as pessoas</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         {STATUSES.map((s) => {
           const items = visibleDemands.filter((d) => d.status === s.id);
@@ -1657,7 +1776,11 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
                 {s.label} <span style={{ color: C.mutedDim }}>{items.length}</span>
               </div>
               {items.map((d) => (
-                <DemandCard key={d.id} demand={d} client={clients.find((c) => c.id === d.clientId)} team={team} onUpdate={update} onDelete={remove} onNotify={role === "admin" ? () => notifyAboutDemand(d) : null} role={role} />
+                <DemandCard
+                  key={d.id} demand={d} client={clients.find((c) => c.id === d.clientId)} team={team}
+                  onUpdate={update} onDelete={remove} onNotify={role === "admin" ? () => notifyAboutDemand(d) : null} role={role}
+                  tags={(tagsByAlert[d.alertId] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
+                />
               ))}
             </div>
           );
@@ -1804,6 +1927,9 @@ export default function App() {
   const [themes, setThemes] = useState([]);
   const [posts, setPosts] = useState([]);
   const [postRecipients, setPostRecipients] = useState([]);
+  const [postTags, setPostTags] = useState([]);
+  const [manualAlerts, setManualAlerts] = useState([]);
+  const [manualAlertTags, setManualAlertTags] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -1826,15 +1952,17 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
           db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
+          db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
         setTeam(teamData); setNotifications(notifsData); setCommunicationRules(rulesData);
         setRuleFireLog(fireLogData); setThemes(themesData); setPosts(postsData); setPostRecipients(postRecipientsData);
+        setPostTags(postTagsData); setManualAlerts(manualAlertsData); setManualAlertTags(manualAlertTagsData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -1857,6 +1985,9 @@ export default function App() {
       ["fluxo_themes", setThemes, db.fetchThemes],
       ["fluxo_posts", setPosts, db.fetchPosts],
       ["fluxo_post_recipients", setPostRecipients, db.fetchPostRecipients],
+      ["fluxo_post_tags", setPostTags, db.fetchPostTags],
+      ["fluxo_alerts", setManualAlerts, db.fetchAlerts],
+      ["fluxo_alert_tags", setManualAlertTags, db.fetchAlertTags],
     ].map(([table, setter, fetcher]) =>
       supabase
         .channel(`sync-${table}`)
@@ -1898,16 +2029,98 @@ export default function App() {
     db.insertNotification(notif).catch((e) => console.error(e));
   }, []);
 
+  const createManualAlert = useCallback(async (alert, tagIds) => {
+    setManualAlerts((as) => [...as, alert]);
+    if (tagIds.length) setManualAlertTags((ts) => [...ts, ...tagIds.map((themeId) => ({ alertId: alert.id, themeId }))]);
+    await db.insertAlert(alert, tagIds);
+  }, []);
+
+  // Motor de disparo dos Alertas manuais: dispara quando a data agendada
+  // chega, cria post em Novidades + (se Relatório) um card de Demanda por
+  // destinatário + notificação de sino. Alertas "Comunicação" recorrentes
+  // voltam pra "agendado" com a próxima data, se repetindo sozinhos.
+  useEffect(() => {
+    if (!loaded || !myProfile || myProfile.status !== "ativo") return;
+    const today = todayStr();
+    const due = manualAlerts.filter((a) => a.status === "agendado" && a.scheduledDate <= today);
+    if (due.length === 0) return;
+    (async () => {
+      for (const alert of due) {
+        try {
+          const recipientIds = resolveDestinoIds(alert.destino, team);
+          if (recipientIds.length === 0) continue;
+          const tagIds = manualAlertTags.filter((t) => t.alertId === alert.id).map((t) => t.themeId);
+          const clientId = alert.clientIds.length === 1 ? alert.clientIds[0] : "";
+          const everyone = !!alert.destino?.everyone;
+
+          const post = {
+            id: uid(), authorId: alert.createdBy, clientId, audience: everyone ? "todos" : "pessoas",
+            message: `${alert.title}${alert.description ? " — " + alert.description : ""}`, createdAt: Date.now(),
+          };
+          await db.insertPost(post, everyone ? [] : recipientIds, tagIds);
+          setPosts((ps) => [post, ...ps]);
+          if (!everyone) setPostRecipients((rs) => [...rs, ...recipientIds.map((memberId) => ({ postId: post.id, memberId }))]);
+          if (tagIds.length) setPostTags((ts) => [...ts, ...tagIds.map((themeId) => ({ postId: post.id, themeId }))]);
+
+          const notifs = [];
+          if (alert.alertType === "relatorio") {
+            for (const memberId of recipientIds) {
+              const demand = {
+                id: uid(), title: alert.title, clientId, unitId: "", description: alert.description,
+                priority: "normal", dueDate: alert.scheduledDate, status: "aberta", origin: "alerta_manual",
+                type: "geral", assigneeId: memberId, recurring: { enabled: alert.repeatFreq !== "nenhuma", freq: alert.repeatFreq },
+                briefing: "", attachments: [], requiresProof: true,
+                proofQuestion: "Concluiu o que foi pedido nesse alerta?", proof: null, proofStatus: "pendente",
+                actions: [], alertId: alert.id, createdAt: Date.now(),
+              };
+              await db.insertDemand(demand);
+              setDemands((ds) => [...ds, demand]);
+              notifs.push({ id: uid(), memberId, message: `Alerta: "${alert.title}"`, demandId: demand.id, read: false, createdAt: Date.now() });
+            }
+          } else {
+            recipientIds.forEach((memberId) => {
+              notifs.push({ id: uid(), memberId, message: `Alerta: "${alert.title}"`, demandId: null, read: false, createdAt: Date.now() });
+            });
+          }
+          if (notifs.length) {
+            await db.insertNotifications(notifs);
+            setNotifications((ns) => [...ns, ...notifs]);
+          }
+
+          const updatedAlert =
+            alert.alertType === "comunicacao" && alert.repeatFreq !== "nenhuma"
+              ? { ...alert, scheduledDate: addAlertInterval(alert.scheduledDate, alert.repeatFreq), status: "agendado" }
+              : { ...alert, status: "enviado" };
+          await db.updateAlert(updatedAlert);
+          setManualAlerts((as) => as.map((a) => (a.id === alert.id ? updatedAlert : a)));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    })();
+  }, [loaded, myProfile?.status, manualAlerts, team]); // eslint-disable-line
+
+  // Réguas com action="alerta" criam um Alerta manual de verdade (que passa
+  // pelo motor de disparo acima) em vez de só uma notificação simples.
+  const dispatchRuleAlerts = useCallback((alertsToCreate) => {
+    alertsToCreate.forEach(({ tagIds, ...alertRow }) => {
+      createManualAlert(alertRow, tagIds).catch((e) => console.error(e));
+    });
+  }, [createManualAlert]);
+
   // time-based réguas: check once per load / whenever demands or rules change
   useEffect(() => {
     if (!loaded || !myProfile || myProfile.status !== "ativo") return;
-    const { notifs, newKeys } = evaluateTimeRules(communicationRules, clients, demands, ruleFireLog);
+    const { notifs, newKeys, alertsToCreate } = evaluateTimeRules(communicationRules, clients, demands, ruleFireLog, myProfile.id);
     if (notifs.length) {
       setNotifications((ns) => [...ns, ...notifs]);
-      setRuleFireLog((fl) => [...fl, ...newKeys]);
       db.insertNotifications(notifs).catch((e) => console.error(e));
+    }
+    if (newKeys.length) {
+      setRuleFireLog((fl) => [...fl, ...newKeys]);
       db.insertFireKeys(newKeys).catch((e) => console.error(e));
     }
+    if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
     // eslint-disable-next-line
   }, [loaded, myProfile?.status, demands.length, communicationRules.length]);
 
@@ -1919,21 +2132,27 @@ export default function App() {
     if (activeAlertRules.length === 0 || alerts.length === 0) return;
     const newNotifs = [];
     const newKeys = [];
+    const alertsToCreate = [];
     alerts.forEach((a) => {
       const fireKey = `alerta:${a.id}`;
       if (ruleFireLog.includes(fireKey)) return;
       activeAlertRules.forEach((rule) => {
         if (!rule.recipientId) return;
-        newNotifs.push({ id: uid(), memberId: rule.recipientId, message: `${rule.message} (${a.clientName} · ${a.unitName} — ${a.metricLabel})`, demandId: null, read: false, createdAt: Date.now() });
+        const message = `${rule.message} (${a.clientName} · ${a.unitName} — ${a.metricLabel})`;
+        if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: rule.recipientId }, message, null, myProfile.id));
+        else newNotifs.push({ id: uid(), memberId: rule.recipientId, message, demandId: null, read: false, createdAt: Date.now() });
       });
       newKeys.push(fireKey);
     });
     if (newNotifs.length) {
       setNotifications((ns) => [...ns, ...newNotifs]);
-      setRuleFireLog((fl) => [...fl, ...newKeys]);
       db.insertNotifications(newNotifs).catch((e) => console.error(e));
+    }
+    if (newKeys.length) {
+      setRuleFireLog((fl) => [...fl, ...newKeys]);
       db.insertFireKeys(newKeys).catch((e) => console.error(e));
     }
+    if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
     // eslint-disable-next-line
   }, [loaded, myProfile?.status, alerts.length, communicationRules.length]);
 
@@ -1979,17 +2198,24 @@ export default function App() {
           <NovidadesView
             posts={posts} setPosts={setPosts}
             postRecipients={postRecipients} setPostRecipients={setPostRecipients}
+            postTags={postTags} setPostTags={setPostTags}
             themes={themes} setThemes={setThemes}
             clients={clients} team={team} me={myProfile} role={role}
           />
         )}
         {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} />}
         {tab === "metricas" && <MetricsView clients={clients} entries={entries} setEntries={setEntries} />}
-        {tab === "alertas" && role === "admin" && <AlertsView clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert} />}
-        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} />}
+        {tab === "alertas" && role === "admin" && (
+          <AlertsView
+            clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert}
+            manualAlerts={manualAlerts} manualAlertTags={manualAlertTags} themes={themes} setThemes={setThemes}
+            team={team} me={myProfile} onCreateAlert={createManualAlert}
+          />
+        )}
+        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} themes={themes} manualAlertTags={manualAlertTags} onCreateAlert={createManualAlert} />}
         {tab === "lembretes" && <RemindersView clients={clients} />}
         {tab === "relatorios" && role === "admin" && <ReportsView clients={clients} entries={entries} demands={demands} />}
-        {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} />}
+        {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} themes={themes} setThemes={setThemes} />}
         {tab === "equipe" && role === "admin" && <TeamView team={team} setTeam={setTeam} demands={demands} clients={clients} onNotify={manualNotify} />}
       </div>
       {!myProfile.onboardedAt && (

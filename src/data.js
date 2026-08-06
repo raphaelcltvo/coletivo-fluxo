@@ -157,6 +157,7 @@ const demandFromRow = (r) => ({
   observation: r.observation ?? undefined,
   originAlertKey: r.origin_alert_key || undefined,
   originInsightKey: r.origin_insight_key || undefined,
+  alertId: r.alert_id || undefined,
   createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
 });
 
@@ -188,6 +189,7 @@ const demandToRow = (d) => ({
   observation: d.observation ?? null,
   origin_alert_key: d.originAlertKey || null,
   origin_insight_key: d.originInsightKey || null,
+  alert_id: d.alertId || null,
 });
 
 export async function fetchDemands() {
@@ -272,6 +274,9 @@ const ruleFromRow = (r) => ({
   recipientMode: r.recipient_mode || "responsavel",
   recipientId: r.recipient_id || "",
   message: r.message,
+  action: r.action || "notificacao",
+  alertType: r.alert_type || "relatorio",
+  alertTagIds: r.alert_tag_ids || [],
 });
 
 const ruleToRow = (r) => ({
@@ -286,6 +291,9 @@ const ruleToRow = (r) => ({
   recipient_mode: r.recipientMode || "responsavel",
   recipient_id: r.recipientId || null,
   message: r.message,
+  action: r.action || "notificacao",
+  alert_type: r.action === "alerta" ? r.alertType || "relatorio" : null,
+  alert_tag_ids: r.alertTagIds || [],
 });
 
 export async function fetchRules() {
@@ -353,7 +361,6 @@ export async function deleteTheme(id) {
 const postFromRow = (r) => ({
   id: r.id,
   authorId: r.author_id,
-  themeId: r.theme_id || "",
   clientId: r.client_id || "",
   audience: r.audience,
   message: r.message,
@@ -363,7 +370,6 @@ const postFromRow = (r) => ({
 const postToRow = (p) => ({
   id: p.id,
   author_id: p.authorId,
-  theme_id: p.themeId || null,
   client_id: p.clientId || null,
   audience: p.audience || "todos",
   message: p.message,
@@ -375,7 +381,7 @@ export async function fetchPosts() {
   return data.map(postFromRow);
 }
 
-export async function insertPost(post, recipientIds = []) {
+export async function insertPost(post, recipientIds = [], tagIds = []) {
   const { error } = await supabase.from("fluxo_posts").insert(postToRow(post));
   check(error);
   if (recipientIds.length) {
@@ -383,6 +389,12 @@ export async function insertPost(post, recipientIds = []) {
       .from("fluxo_post_recipients")
       .insert(recipientIds.map((memberId) => ({ post_id: post.id, member_id: memberId })));
     check(recErr);
+  }
+  if (tagIds.length) {
+    const { error: tagErr } = await supabase
+      .from("fluxo_post_tags")
+      .insert(tagIds.map((themeId) => ({ post_id: post.id, theme_id: themeId })));
+    check(tagErr);
   }
 }
 
@@ -395,6 +407,74 @@ export async function fetchPostRecipients() {
   const { data, error } = await supabase.from("fluxo_post_recipients").select("*");
   check(error);
   return data.map((r) => ({ postId: r.post_id, memberId: r.member_id }));
+}
+
+export async function fetchPostTags() {
+  const { data, error } = await supabase.from("fluxo_post_tags").select("*");
+  check(error);
+  return data.map((r) => ({ postId: r.post_id, themeId: r.theme_id }));
+}
+
+/* ----------------------------------- alerts ----------------------------------- */
+
+const alertFromRow = (r) => ({
+  id: r.id,
+  title: r.title,
+  description: r.description || "",
+  alertType: r.alert_type,
+  clientIds: r.client_ids || [],
+  destino: r.destino || {},
+  scheduledDate: r.scheduled_date,
+  repeatFreq: r.repeat_freq,
+  status: r.status,
+  createdBy: r.created_by,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+});
+
+const alertToRow = (a) => ({
+  id: a.id,
+  title: a.title,
+  description: a.description || "",
+  alert_type: a.alertType,
+  client_ids: a.clientIds || [],
+  destino: a.destino || {},
+  scheduled_date: a.scheduledDate,
+  repeat_freq: a.repeatFreq || "nenhuma",
+  status: a.status || "agendado",
+  created_by: a.createdBy,
+});
+
+export async function fetchAlerts() {
+  const { data, error } = await supabase.from("fluxo_alerts").select("*").order("created_at", { ascending: false });
+  check(error);
+  return data.map(alertFromRow);
+}
+
+export async function insertAlert(alert, tagIds = []) {
+  const { error } = await supabase.from("fluxo_alerts").insert(alertToRow(alert));
+  check(error);
+  if (tagIds.length) {
+    const { error: tagErr } = await supabase
+      .from("fluxo_alert_tags")
+      .insert(tagIds.map((themeId) => ({ alert_id: alert.id, theme_id: themeId })));
+    check(tagErr);
+  }
+}
+
+export async function updateAlertStatus(id, status) {
+  const { error } = await supabase.from("fluxo_alerts").update({ status }).eq("id", id);
+  check(error);
+}
+
+export async function updateAlert(alert) {
+  const { error } = await supabase.from("fluxo_alerts").update(alertToRow(alert)).eq("id", alert.id);
+  check(error);
+}
+
+export async function fetchAlertTags() {
+  const { data, error } = await supabase.from("fluxo_alert_tags").select("*");
+  check(error);
+  return data.map((r) => ({ alertId: r.alert_id, themeId: r.theme_id }));
 }
 
 /* --------------------------------- onboarding --------------------------------- */
