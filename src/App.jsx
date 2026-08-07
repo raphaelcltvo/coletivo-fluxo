@@ -12,6 +12,7 @@ import {
 import { NovidadesView, TagPicker, ThemeManager } from "./novidades.jsx";
 import { Onboarding } from "./onboarding.jsx";
 import { ManualAlertsSection, resolveDestinoIds } from "./alerts.jsx";
+import { ZeusView } from "./zeus.jsx";
 
 /* ---------------------------------------------------------------------- */
 /* METRIC DEFINITIONS                                                      */
@@ -510,7 +511,7 @@ function TopBar({ theme, setTheme, me, notifications, setNotifications }) {
 const NAV_ADMIN = [
   { id: "novidades", label: "Novidades", icon: Rss },
   { id: "clientes", label: "Clientes", icon: Users },
-  { id: "metricas", label: "Métricas", icon: TrendingUp },
+  { id: "dashboard", label: "Dashboard", icon: TrendingUp },
   { id: "alertas", label: "Alertas", icon: Bell },
   { id: "demandas", label: "Demandas", icon: ClipboardList },
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
@@ -521,7 +522,6 @@ const NAV_ADMIN = [
 const NAV_STAFF = [
   { id: "novidades", label: "Novidades", icon: Rss },
   { id: "demandas", label: "Minhas demandas", icon: ClipboardList },
-  { id: "metricas", label: "Métricas", icon: TrendingUp },
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
 ];
 
@@ -1930,6 +1930,7 @@ export default function App() {
   const [postTags, setPostTags] = useState([]);
   const [manualAlerts, setManualAlerts] = useState([]);
   const [manualAlertTags, setManualAlertTags] = useState([]);
+  const [zeusConversations, setZeusConversations] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -1952,17 +1953,18 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
           db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
-          db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(),
+          db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(), db.fetchZeusConversations(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
         setTeam(teamData); setNotifications(notifsData); setCommunicationRules(rulesData);
         setRuleFireLog(fireLogData); setThemes(themesData); setPosts(postsData); setPostRecipients(postRecipientsData);
         setPostTags(postTagsData); setManualAlerts(manualAlertsData); setManualAlertTags(manualAlertTagsData);
+        setZeusConversations(zeusConversationsData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -1988,6 +1990,7 @@ export default function App() {
       ["fluxo_post_tags", setPostTags, db.fetchPostTags],
       ["fluxo_alerts", setManualAlerts, db.fetchAlerts],
       ["fluxo_alert_tags", setManualAlertTags, db.fetchAlertTags],
+      ["fluxo_zeus_conversations", setZeusConversations, db.fetchZeusConversations],
     ].map(([table, setter, fetcher]) =>
       supabase
         .channel(`sync-${table}`)
@@ -2204,7 +2207,9 @@ export default function App() {
           />
         )}
         {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} />}
-        {tab === "metricas" && <MetricsView clients={clients} entries={entries} setEntries={setEntries} />}
+        {tab === "dashboard" && role === "admin" && (
+          <ZeusView conversations={zeusConversations} setConversations={setZeusConversations} clients={clients} me={myProfile} />
+        )}
         {tab === "alertas" && role === "admin" && (
           <AlertsView
             clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert}

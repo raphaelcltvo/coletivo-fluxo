@@ -6,6 +6,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 export const TONES = { muted: C.mutedDim, amber: C.amber, teal: C.teal, red: C.red, brand: C.brand };
 export const TONE_BG = { muted: C.surface3, amber: C.amberDim, teal: C.tealDim, red: C.redDim, brand: C.brandDim };
+export const TONE_LABELS = { muted: "Cinza", amber: "Âmbar", teal: "Verde-azulado", red: "Vermelho", brand: "Azul" };
 
 export function timeAgo(ts) {
   const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -69,7 +70,7 @@ export function ThemeManager({ themes, setThemes, onClose }) {
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <input style={{ ...inputStyle, flex: 1 }} placeholder="Nome da tag" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
           <select style={{ ...inputStyle, width: 110 }} value={tone} onChange={(e) => setTone(e.target.value)}>
-            {Object.keys(TONES).map((t) => <option key={t} value={t}>{t}</option>)}
+            {Object.keys(TONES).map((t) => <option key={t} value={t}>{TONE_LABELS[t]}</option>)}
           </select>
           <Btn onClick={add}>+</Btn>
         </div>

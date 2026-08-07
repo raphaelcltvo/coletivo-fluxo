@@ -483,3 +483,100 @@ export async function markOnboarded(id) {
   const { error } = await supabase.from("fluxo_profiles").update({ onboarded_at: new Date().toISOString() }).eq("id", id);
   check(error);
 }
+
+/* --------------------------------- zeus --------------------------------- */
+
+const zeusConversationFromRow = (r) => ({
+  id: r.id,
+  title: r.title,
+  clientId: r.client_id || "",
+  createdBy: r.created_by,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+  updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
+});
+
+export async function fetchZeusConversations() {
+  const { data, error } = await supabase.from("fluxo_zeus_conversations").select("*").order("updated_at", { ascending: false });
+  check(error);
+  return data.map(zeusConversationFromRow);
+}
+
+export async function insertZeusConversation(conversation) {
+  const { error } = await supabase.from("fluxo_zeus_conversations").insert({
+    id: conversation.id,
+    title: conversation.title || "Nova conversa",
+    client_id: conversation.clientId || null,
+    created_by: conversation.createdBy,
+  });
+  check(error);
+}
+
+export async function touchZeusConversation(id, clientId) {
+  const patch = { updated_at: new Date().toISOString() };
+  if (clientId !== undefined) patch.client_id = clientId || null;
+  const { error } = await supabase.from("fluxo_zeus_conversations").update(patch).eq("id", id);
+  check(error);
+}
+
+const zeusMessageFromRow = (r) => ({
+  id: r.id,
+  conversationId: r.conversation_id,
+  role: r.role,
+  content: r.content,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+});
+
+export async function fetchZeusMessages(conversationId) {
+  const { data, error } = await supabase
+    .from("fluxo_zeus_messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .order("created_at");
+  check(error);
+  return data.map(zeusMessageFromRow);
+}
+
+const zeusKnowledgeFromRow = (r) => ({
+  clientId: r.client_id,
+  sheetUrl: r.sheet_url || "",
+  keyIndicators: r.key_indicators || [],
+  notes: r.notes || "",
+  updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
+});
+
+export async function fetchZeusClientKnowledge() {
+  const { data, error } = await supabase.from("fluxo_zeus_client_knowledge").select("*");
+  check(error);
+  return data.map(zeusKnowledgeFromRow);
+}
+
+const zeusDashboardFromRow = (r) => ({
+  id: r.id,
+  conversationId: r.conversation_id || "",
+  clientId: r.client_id || "",
+  filePath: r.file_path,
+  url: r.url,
+  createdBy: r.created_by,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+});
+
+export async function fetchZeusDashboards() {
+  const { data, error } = await supabase.from("fluxo_zeus_dashboards").select("*").order("created_at", { ascending: false });
+  check(error);
+  return data.map(zeusDashboardFromRow);
+}
+
+/** Manda uma mensagem pro Zeus (Edge Function zeus-chat) e devolve { conversationId, reply, ui }. */
+export async function callZeus({ conversationId, clientId, message, image }) {
+  const { data, error } = await supabase.functions.invoke("zeus-chat", { body: { conversationId, clientId, message, image } });
+  if (error) {
+    let msg = error.message;
+    try {
+      const body = await error.context.json();
+      if (body?.error) msg = body.error;
+    } catch {}
+    throw new Error(msg);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
