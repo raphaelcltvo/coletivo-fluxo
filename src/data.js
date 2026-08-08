@@ -66,6 +66,7 @@ const clientFromRow = (r) => ({
   priorityMetrics: r.priority_metrics || [],
   deliverables: r.deliverables || [],
   diagnosis: r.diagnosis || "",
+  driveUrl: r.drive_url || "",
   createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
 });
 
@@ -77,6 +78,7 @@ const clientToRow = (c) => ({
   priority_metrics: c.priorityMetrics,
   deliverables: c.deliverables,
   diagnosis: c.diagnosis,
+  drive_url: c.driveUrl || null,
 });
 
 export async function fetchClients() {
@@ -87,6 +89,11 @@ export async function fetchClients() {
 
 export async function insertClient(client) {
   const { error } = await supabase.from("fluxo_clients").insert(clientToRow(client));
+  check(error);
+}
+
+export async function updateClientDrive(id, driveUrl) {
+  const { error } = await supabase.from("fluxo_clients").update({ drive_url: driveUrl || null }).eq("id", id);
   check(error);
 }
 

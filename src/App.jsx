@@ -1003,6 +1003,50 @@ function ClientForm({ team, onSave, onClose }) {
   );
 }
 
+/** Converte um link de pasta do Google Drive num link de embed (iframe). */
+function driveEmbedUrl(url) {
+  if (!url) return "";
+  const match = url.match(/folders\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return match ? `https://drive.google.com/embeddedfolderview?id=${match[1]}#grid` : "";
+}
+
+function DriveLinkField({ client, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(client.driveUrl || "");
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await db.updateClientDrive(client.id, value.trim());
+      onSaved(value.trim());
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.mutedDim, textTransform: "uppercase", marginBottom: 6 }}>Pasta do Drive</div>
+      {editing ? (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input style={{ ...inputStyle, flex: 1 }} placeholder="Cole o link de compartilhamento da pasta do Drive" value={value} onChange={(e) => setValue(e.target.value)} />
+          <Btn disabled={busy} onClick={save}>Salvar</Btn>
+          <Btn variant="ghost" onClick={() => { setEditing(false); setValue(client.driveUrl || ""); }}>Cancelar</Btn>
+        </div>
+      ) : client.driveUrl ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <a href={client.driveUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: C.brand, wordBreak: "break-all" }}>{client.driveUrl}</a>
+          <button onClick={() => setEditing(true)} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 11.5 }}>editar</button>
+        </div>
+      ) : (
+        <button onClick={() => setEditing(true)} style={{ background: "none", border: "none", color: C.brand, cursor: "pointer", fontSize: 12.5, fontWeight: 600, padding: 0 }}>+ Adicionar link da pasta</button>
+      )}
+    </div>
+  );
+}
+
 function ClientsView({ clients, setClients, team, themes, setThemes, themeGroups }) {
   const [showForm, setShowForm] = useState(false);
   const [expanded, setExpanded] = useState(null);
@@ -1054,6 +1098,7 @@ function ClientsView({ clients, setClients, team, themes, setThemes, themeGroups
                       ))}
                     </div>
                   </div>
+                  <DriveLinkField client={c} onSaved={(driveUrl) => setClients((cs) => cs.map((x) => (x.id === c.id ? { ...x, driveUrl } : x)))} />
                   <Btn variant="danger" style={{ marginTop: 14 }} onClick={() => removeClient(c.id)}><Trash2 size={13} /> Remover cliente</Btn>
                 </div>
               )}
@@ -1871,6 +1916,17 @@ function ReportsView({ clients, entries, demands }) {
         subtitle="Gerado a partir dos lançamentos de métricas e do log de ações"
         action={<select style={{ ...inputStyle, width: 220 }} value={clientId} onChange={(e) => setClientId(e.target.value)}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
       />
+      <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 10 }}>Drive do cliente</div>
+      {client.driveUrl ? (
+        <Ticket style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+          <iframe title={`Drive — ${client.name}`} src={driveEmbedUrl(client.driveUrl)} style={{ width: "100%", height: 420, border: "none", display: "block" }} />
+        </Ticket>
+      ) : (
+        <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "24px 20px", textAlign: "center", color: C.mutedDim, fontSize: 13, marginBottom: 20 }}>
+          Nenhuma pasta do Drive vinculada ainda. Adicione o link em <b style={{ color: C.muted }}>Clientes</b>, no cadastro deste cliente.
+        </div>
+      )}
+
       <Ticket style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
         <div style={{ background: C.brandDim, padding: "12px 18px", fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 800, color: C.brandSoft, textTransform: "uppercase", letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 9 }}>
           <Ring size={16} color={C.brandSoft} stroke={2.6} /> Dashboard de performance — {client.name}
