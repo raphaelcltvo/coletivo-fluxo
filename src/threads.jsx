@@ -410,13 +410,25 @@ function RepliesThread({ replies, team, me, onReply }) {
   );
 }
 
+/** Coração de curtida, clicável, com contador. */
+function LikeButton({ liked, count, onClick }) {
+  return (
+    <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", color: liked ? C.red : C.mutedDim, fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+      <span style={{ fontSize: 13 }}>{liked ? "♥" : "♡"}</span> {count > 0 ? count : "Curtir"}
+    </button>
+  );
+}
+
 /* ---------------------------------------------------------------------- */
 /* POST CARD                                                               */
 /* ---------------------------------------------------------------------- */
-function PostCard({ post, author, tags, client, recipients, team, me, role, onDelete, onFilterTag, reads, replies, onMarkRead, onReply }) {
+function PostCard({ post, author, tags, client, recipients, team, me, role, onDelete, onFilterTag, reads, replies, onMarkRead, onReply, liked, likeCount, onToggleLike, unread }) {
   const canDelete = post.authorId === me.id || role === "admin";
   return (
-    <Ticket style={{ padding: 16, marginBottom: 10, animation: "fluxo-fade-in .25s ease" }}>
+    <Ticket style={{ padding: 16, marginBottom: 10, animation: "fluxo-fade-in .25s ease", position: "relative" }}>
+      {unread && (
+        <span title="Não lido" style={{ position: "absolute", top: 14, right: 14, width: 8, height: 8, borderRadius: 999, background: C.brand }} />
+      )}
       <div style={{ display: "flex", gap: 10 }}>
         <Avatar name={author?.name} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -438,7 +450,10 @@ function PostCard({ post, author, tags, client, recipients, team, me, role, onDe
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border}`, flexWrap: "wrap" }}>
-            <RepliesThread replies={replies} team={team} me={me} onReply={onReply} />
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <LikeButton liked={liked} count={likeCount} onClick={onToggleLike} />
+              <RepliesThread replies={replies} team={team} me={me} onReply={onReply} />
+            </div>
             <ReadReceipts reads={reads} team={team} me={me} onMarkRead={onMarkRead} />
           </div>
         </div>
@@ -448,17 +463,138 @@ function PostCard({ post, author, tags, client, recipients, team, me, role, onDe
 }
 
 /* ---------------------------------------------------------------------- */
-/* NOVIDADES VIEW                                                          */
+/* MENSAGEM DIRETA (DM) — barra lateral + painel de conversa               */
 /* ---------------------------------------------------------------------- */
-export function NovidadesView({
+function NewDmPicker({ team, me, onPick, onClose }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,13,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 60 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.borderLight}`, borderRadius: 14, width: "100%", maxWidth: 320, padding: 18 }}>
+        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 17, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 12 }}>Nova conversa</div>
+        <div style={{ display: "grid", gap: 4 }}>
+          {team.filter((t) => t.status === "ativo" && t.id !== me.id).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onPick(t.id)}
+              style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", borderRadius: 8, padding: "8px 6px", cursor: "pointer", textAlign: "left" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = C.surface2)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <Avatar name={t.name} size={26} />
+              <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{t.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DmSidebar({ conversations, team, me, activeId, onSelect, onNew }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const otherOf = (c) => (c.memberAId === me.id ? c.memberBId : c.memberAId);
+
+  return (
+    <div style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.mutedDim }}>Mensagens</div>
+        <button onClick={() => setShowPicker(true)} title="Nova conversa" style={{ background: "none", border: "none", color: C.brand, fontSize: 17, fontWeight: 700, cursor: "pointer", lineHeight: 1 }}>+</button>
+      </div>
+      <button
+        onClick={() => onSelect(null)}
+        style={{ textAlign: "left", background: activeId === null ? C.surface3 : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: C.text, fontSize: 12.5, fontWeight: activeId === null ? 700 : 500 }}
+      >
+        📣 Feed público
+      </button>
+      {conversations.map((c) => {
+        const otherId = otherOf(c);
+        const other = team.find((t) => t.id === otherId);
+        const unread = c.messages?.some((m) => m.senderId !== me.id && !m.readAt);
+        return (
+          <button
+            key={c.id}
+            onClick={() => onSelect(c.id)}
+            style={{ textAlign: "left", background: activeId === c.id ? C.surface3 : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <Avatar name={other?.name} size={24} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.text, fontWeight: unread ? 700 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {other?.name || "—"}
+            </span>
+            {unread && <span style={{ width: 7, height: 7, borderRadius: 999, background: C.brand, flexShrink: 0 }} />}
+          </button>
+        );
+      })}
+      {showPicker && <NewDmPicker team={team} me={me} onClose={() => setShowPicker(false)} onPick={(id) => { setShowPicker(false); onNew(id); }} />}
+    </div>
+  );
+}
+
+function DmChatPanel({ conversation, messages, team, me, onSend }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const otherId = conversation.memberAId === me.id ? conversation.memberBId : conversation.memberAId;
+  const other = team.find((t) => t.id === otherId);
+
+  const send = async () => {
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      await onSend(text.trim());
+      setText("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Ticket style={{ padding: 0, display: "flex", flexDirection: "column", height: "calc(100vh - 180px)" }}>
+      <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+        <Avatar name={other?.name} size={28} />
+        <div style={{ fontWeight: 700, color: C.text, fontSize: 14.5 }}>{other?.name || "—"}</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "grid", gap: 10 }}>
+        {messages.length === 0 && <div style={{ color: C.mutedDim, fontSize: 13, textAlign: "center", marginTop: 30 }}>Nenhuma mensagem ainda. Diga oi.</div>}
+        {messages.map((m) => {
+          const mine = m.senderId === me.id;
+          return (
+            <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
+              <div style={{ maxWidth: "70%", background: mine ? C.brand : C.surface2, color: mine ? "#fff" : C.text, borderRadius: 12, padding: "8px 12px", fontSize: 13.5, whiteSpace: "pre-wrap" }}>
+                {renderMessage(m.message, team)}
+                <div style={{ fontSize: 10, opacity: 0.7, marginTop: 3 }}>{timeAgo(m.createdAt)}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ padding: 14, borderTop: `1px solid ${C.border}`, display: "flex", gap: 8 }}>
+        <MentionTextarea
+          style={{ ...inputStyle, flex: 1, minHeight: 38, resize: "none" }}
+          placeholder="Escreva uma mensagem..."
+          value={text}
+          team={team}
+          onChange={setText}
+        />
+        <Btn disabled={busy || !text.trim()} onClick={send}>Enviar</Btn>
+      </div>
+    </Ticket>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* THREADS VIEW                                                            */
+/* ---------------------------------------------------------------------- */
+export function ThreadsView({
   posts, setPosts, postRecipients, setPostRecipients, postTags, setPostTags,
-  postReads, setPostReads, postReplies, setPostReplies,
+  postReads, setPostReads, postReplies, setPostReplies, postLikes, setPostLikes,
+  dmConversations, setDmConversations,
   themes, setThemes, clients, team, me, role,
 }) {
   const [filterTag, setFilterTag] = useState("");
   const [filterClient, setFilterClient] = useState("");
   const [filterMode, setFilterMode] = useState("tudo"); // tudo | meu | postei
+  const [viewMode, setViewMode] = useState("recentes"); // recentes | data | tag
   const [showThemeManager, setShowThemeManager] = useState(false);
+  const [activeDmId, setActiveDmId] = useState(null);
+  const [dmMessagesByConv, setDmMessagesByConv] = useState({});
 
   const recipientsByPost = useMemo(() => {
     const map = {};
@@ -495,6 +631,20 @@ export function NovidadesView({
     });
     return map;
   }, [postReplies]);
+
+  const likesByPost = useMemo(() => {
+    const map = {};
+    postLikes.forEach((r) => {
+      if (!map[r.postId]) map[r.postId] = [];
+      map[r.postId].push(r.memberId);
+    });
+    return map;
+  }, [postLikes]);
+
+  const unreadCount = useMemo(
+    () => posts.filter((p) => p.authorId !== me.id && !(readsByPost[p.id] || []).some((r) => r.memberId === me.id)).length,
+    [posts, readsByPost, me.id]
+  );
 
   const visiblePosts = useMemo(() => {
     return posts
@@ -539,69 +689,189 @@ export function NovidadesView({
     await db.insertPostReply(r);
   };
 
+  const toggleLike = (postId) => {
+    const liked = (likesByPost[postId] || []).includes(me.id);
+    setPostLikes((ls) =>
+      liked ? ls.filter((l) => !(l.postId === postId && l.memberId === me.id)) : [...ls, { postId, memberId: me.id }]
+    );
+    db.togglePostLike(postId, me.id, !liked).catch((e) => console.error(e));
+  };
+
+  const openDm = async (conversationId) => {
+    setActiveDmId(conversationId);
+    if (conversationId && !dmMessagesByConv[conversationId]) {
+      const msgs = await db.fetchDmMessages(conversationId);
+      setDmMessagesByConv((m) => ({ ...m, [conversationId]: msgs }));
+    }
+    if (conversationId) {
+      await db.markDmConversationRead(conversationId, me.id);
+      setDmMessagesByConv((m) => ({
+        ...m,
+        [conversationId]: (m[conversationId] || []).map((msg) => (msg.senderId !== me.id && !msg.readAt ? { ...msg, readAt: Date.now() } : msg)),
+      }));
+    }
+  };
+
+  const startDm = async (otherId) => {
+    const conv = await db.findOrCreateDmConversation(me.id, otherId);
+    setDmConversations((cs) => (cs.some((c) => c.id === conv.id) ? cs : [conv, ...cs]));
+    await openDm(conv.id);
+  };
+
+  const sendDm = async (text) => {
+    if (!activeDmId) return;
+    const msg = { id: uid(), conversationId: activeDmId, senderId: me.id, message: text, createdAt: Date.now(), readAt: null };
+    setDmMessagesByConv((m) => ({ ...m, [activeDmId]: [...(m[activeDmId] || []), msg] }));
+    await db.insertDmMessage(msg);
+  };
+
+  const activeConv = dmConversations.find((c) => c.id === activeDmId);
+
+  const grouped = useMemo(() => {
+    if (viewMode === "data") {
+      const map = {};
+      visiblePosts.forEach((p) => {
+        const key = new Date(p.createdAt).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+        if (!map[key]) map[key] = [];
+        map[key].push(p);
+      });
+      return Object.entries(map);
+    }
+    if (viewMode === "tag") {
+      const map = {};
+      visiblePosts.forEach((p) => {
+        const ids = tagsByPost[p.id] || [];
+        const key = ids.length ? ids[0] : "__sem_tag";
+        if (!map[key]) map[key] = [];
+        map[key].push(p);
+      });
+      return Object.entries(map).map(([key, list]) => [key === "__sem_tag" ? "Sem tag" : themes.find((t) => t.id === key)?.name || "Tag removida", list]);
+    }
+    return [["", visiblePosts]];
+  }, [viewMode, visiblePosts, tagsByPost, themes]);
+
+  const renderPost = (post) => (
+    <PostCard
+      key={post.id}
+      post={post}
+      author={team.find((t) => t.id === post.authorId)}
+      tags={(tagsByPost[post.id] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
+      client={clients.find((c) => c.id === post.clientId)}
+      recipients={recipientsByPost[post.id] || []}
+      team={team}
+      me={me}
+      role={role}
+      onDelete={remove}
+      onFilterTag={(id) => { setFilterTag(id); setViewMode("recentes"); }}
+      reads={readsByPost[post.id] || []}
+      replies={repliesByPost[post.id] || []}
+      onMarkRead={() => markRead(post.id)}
+      onReply={(text) => reply(post.id, text)}
+      liked={(likesByPost[post.id] || []).includes(me.id)}
+      likeCount={(likesByPost[post.id] || []).length}
+      onToggleLike={() => toggleLike(post.id)}
+      unread={post.authorId !== me.id && !(readsByPost[post.id] || []).some((r) => r.memberId === me.id)}
+    />
+  );
+
   return (
-    <div>
-      <style>{`@keyframes fluxo-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 30, fontWeight: 800, color: C.text, margin: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>
-            Novidades
-          </h1>
-          <p style={{ fontSize: 13, color: C.muted, margin: "4px 0 0" }}>Comunicação interna do time — como uma linha do tempo</p>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {[["tudo", "Tudo"], ["meu", "Só pra mim"], ["postei", "Que eu postei"]].map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setFilterMode(id)}
-              style={{
-                background: filterMode === id ? C.brand : C.surface2, color: filterMode === id ? "#fff" : C.muted,
-                border: `1px solid ${filterMode === id ? C.brand : C.border}`, borderRadius: 999, padding: "6px 14px",
-                fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif",
-              }}
-            >
-              {label}
-            </button>
-          ))}
-          <select style={{ ...inputStyle, width: "auto" }} value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
-            <option value="">Todas as tags</option>
-            {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <select style={{ ...inputStyle, width: "auto" }} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
-            <option value="">Todos os clientes</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
+    <div style={{ display: "flex", gap: 18 }}>
+      <DmSidebar conversations={dmConversations} team={team} me={me} activeId={activeDmId} onSelect={openDm} onNew={startDm} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <style>{`@keyframes fluxo-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+
+        {activeConv ? (
+          <DmChatPanel
+            conversation={activeConv}
+            messages={dmMessagesByConv[activeConv.id] || []}
+            team={team}
+            me={me}
+            onSend={sendDm}
+          />
+        ) : (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h1 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 30, fontWeight: 800, color: C.text, margin: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>
+                    Threads
+                  </h1>
+                  {unreadCount > 0 && (
+                    <span style={{ background: C.tealDim, color: C.teal, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999 }}>
+                      ● {unreadCount} não lido{unreadCount !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                <p style={{ fontSize: 13, color: C.muted, margin: "4px 0 0" }}>Comunicação interna do time — públicas ou direto com alguém</p>
+              </div>
+              <select style={{ ...inputStyle, width: "auto" }} value={filterClient} onChange={(e) => setFilterClient(e.target.value)}>
+                <option value="">Todos os clientes</option>
+                {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              {[["recentes", "Mais Recentes"], ["data", "Por Data"], ["tag", "Por Tag"]].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setViewMode(id)}
+                  style={{
+                    background: viewMode === id ? C.brand : C.surface2, color: viewMode === id ? "#fff" : C.muted,
+                    border: `1px solid ${viewMode === id ? C.brand : C.border}`, borderRadius: 999, padding: "6px 14px",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <div style={{ width: 1, background: C.border, margin: "4px 2px" }} />
+              {[["tudo", "Tudo"], ["meu", "Só pra mim"], ["postei", "Que eu postei"]].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setFilterMode(id)}
+                  style={{
+                    background: filterMode === id ? C.surface3 : "transparent", color: filterMode === id ? C.text : C.mutedDim,
+                    border: `1px solid ${C.border}`, borderRadius: 999, padding: "6px 14px",
+                    fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter, sans-serif",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {themes.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+                {themes.map((t) => (
+                  <ClickableTag key={t.id} tone={t.tone} onClick={() => { setFilterTag(filterTag === t.id ? "" : t.id); setViewMode("recentes"); }}>
+                    {filterTag === t.id ? "✓ " : ""}{t.name}
+                  </ClickableTag>
+                ))}
+              </div>
+            )}
+
+            <Composer themes={themes} clients={clients} team={team} me={me} role={role} onPost={publish} onManageThemes={() => setShowThemeManager(true)} />
+
+            {visiblePosts.length === 0 && (
+              <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "40px 20px", textAlign: "center", color: C.mutedDim, fontSize: 13 }}>
+                Nenhuma novidade por aqui ainda. Seja o primeiro a postar algo pro time.
+              </div>
+            )}
+            {grouped.map(([label, list]) => (
+              <div key={label || "all"}>
+                {label && (
+                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.mutedDim, margin: "18px 0 8px" }}>
+                    {label}
+                  </div>
+                )}
+                {list.map(renderPost)}
+              </div>
+            ))}
+
+            {showThemeManager && <ThemeManager themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
+          </>
+        )}
       </div>
-
-      <Composer themes={themes} clients={clients} team={team} me={me} role={role} onPost={publish} onManageThemes={() => setShowThemeManager(true)} />
-
-      {visiblePosts.length === 0 && (
-        <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "40px 20px", textAlign: "center", color: C.mutedDim, fontSize: 13 }}>
-          Nenhuma novidade por aqui ainda. Seja o primeiro a postar algo pro time.
-        </div>
-      )}
-      {visiblePosts.map((post) => (
-        <PostCard
-          key={post.id}
-          post={post}
-          author={team.find((t) => t.id === post.authorId)}
-          tags={(tagsByPost[post.id] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
-          client={clients.find((c) => c.id === post.clientId)}
-          recipients={recipientsByPost[post.id] || []}
-          team={team}
-          me={me}
-          role={role}
-          onDelete={remove}
-          onFilterTag={setFilterTag}
-          reads={readsByPost[post.id] || []}
-          replies={repliesByPost[post.id] || []}
-          onMarkRead={() => markRead(post.id)}
-          onReply={(text) => reply(post.id, text)}
-        />
-      ))}
-
-      {showThemeManager && <ThemeManager themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
     </div>
   );
 }

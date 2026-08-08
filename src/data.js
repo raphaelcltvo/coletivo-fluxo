@@ -447,6 +447,82 @@ export async function insertPostReply(reply) {
   check(error);
 }
 
+export async function fetchPostLikes() {
+  const { data, error } = await supabase.from("fluxo_post_likes").select("*");
+  check(error);
+  return data.map((r) => ({ postId: r.post_id, memberId: r.member_id }));
+}
+
+export async function togglePostLike(postId, memberId, liked) {
+  if (liked) {
+    const { error } = await supabase.from("fluxo_post_likes").insert({ post_id: postId, member_id: memberId });
+    check(error);
+  } else {
+    const { error } = await supabase.from("fluxo_post_likes").delete().eq("post_id", postId).eq("member_id", memberId);
+    check(error);
+  }
+}
+
+/* --------------------------------- mensagem direta (DM) --------------------------------- */
+
+const dmConversationFromRow = (r) => ({
+  id: r.id,
+  memberAId: r.member_a_id,
+  memberBId: r.member_b_id,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+  updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : Date.now(),
+});
+
+export async function fetchDmConversations() {
+  const { data, error } = await supabase.from("fluxo_dm_conversations").select("*").order("updated_at", { ascending: false });
+  check(error);
+  return data.map(dmConversationFromRow);
+}
+
+/** Sempre chama com os dois ids — a ordem não importa, a função normaliza. */
+export async function findOrCreateDmConversation(memberAId, memberBId) {
+  const [a, b] = [memberAId, memberBId].sort();
+  const { data: existing, error: findErr } = await supabase
+    .from("fluxo_dm_conversations").select("*").eq("member_a_id", a).eq("member_b_id", b).maybeSingle();
+  check(findErr);
+  if (existing) return dmConversationFromRow(existing);
+  const id = Math.random().toString(36).slice(2, 10);
+  const { error } = await supabase.from("fluxo_dm_conversations").insert({ id, member_a_id: a, member_b_id: b });
+  check(error);
+  return { id, memberAId: a, memberBId: b, createdAt: Date.now(), updatedAt: Date.now() };
+}
+
+const dmMessageFromRow = (r) => ({
+  id: r.id,
+  conversationId: r.conversation_id,
+  senderId: r.sender_id,
+  message: r.message,
+  readAt: r.read_at ? new Date(r.read_at).getTime() : null,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+});
+
+export async function fetchDmMessages(conversationId) {
+  const { data, error } = await supabase
+    .from("fluxo_dm_messages").select("*").eq("conversation_id", conversationId).order("created_at");
+  check(error);
+  return data.map(dmMessageFromRow);
+}
+
+export async function insertDmMessage(message) {
+  const { error } = await supabase.from("fluxo_dm_messages").insert({
+    id: message.id, conversation_id: message.conversationId, sender_id: message.senderId, message: message.message,
+  });
+  check(error);
+  await supabase.from("fluxo_dm_conversations").update({ updated_at: new Date().toISOString() }).eq("id", message.conversationId);
+}
+
+export async function markDmConversationRead(conversationId, myId) {
+  const { error } = await supabase
+    .from("fluxo_dm_messages").update({ read_at: new Date().toISOString() })
+    .eq("conversation_id", conversationId).neq("sender_id", myId).is("read_at", null);
+  check(error);
+}
+
 /* ----------------------------------- alerts ----------------------------------- */
 
 const alertFromRow = (r) => ({

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as db from "./data.js";
 import { C, Ticket, Btn, inputStyle } from "./ui.jsx";
-import { Avatar, timeAgo } from "./novidades.jsx";
+import { Avatar, timeAgo } from "./threads.jsx";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 

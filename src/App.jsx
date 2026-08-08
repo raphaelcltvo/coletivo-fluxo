@@ -9,7 +9,7 @@ import {
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
   Send, Megaphone, CalendarClock, Zap, LogOut, Rss,
 } from "lucide-react";
-import { NovidadesView, TagPicker, ThemeManager } from "./novidades.jsx";
+import { ThreadsView, TagPicker, ThemeManager } from "./threads.jsx";
 import { Onboarding } from "./onboarding.jsx";
 import { ManualAlertsSection, resolveDestinoIds } from "./alerts.jsx";
 import { ZeusView } from "./zeus.jsx";
@@ -509,7 +509,7 @@ function TopBar({ theme, setTheme, me, notifications, setNotifications }) {
 /* SIDEBAR                                                                  */
 /* ---------------------------------------------------------------------- */
 const NAV_ADMIN = [
-  { id: "novidades", label: "Novidades", icon: Rss },
+  { id: "threads", label: "Threads", icon: Rss },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "dashboard", label: "Dashboard", icon: TrendingUp },
   { id: "alertas", label: "Alertas", icon: Bell },
@@ -520,7 +520,7 @@ const NAV_ADMIN = [
   { id: "equipe", label: "Equipe & Acessos", icon: UserCog },
 ];
 const NAV_STAFF = [
-  { id: "novidades", label: "Novidades", icon: Rss },
+  { id: "threads", label: "Threads", icon: Rss },
   { id: "demandas", label: "Minhas demandas", icon: ClipboardList },
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
 ];
@@ -1915,7 +1915,7 @@ function ReportsView({ clients, entries, demands }) {
 export default function App() {
   const { session, loading: sessionLoading, authEvent } = useSession();
   const [theme, setTheme] = useState(() => localStorage.getItem("coletivo-fluxo:theme") || "light");
-  const [tab, setTab] = useState("novidades");
+  const [tab, setTab] = useState("threads");
   const [myProfile, setMyProfile] = useState(null);
   const [clients, setClients] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -1930,6 +1930,8 @@ export default function App() {
   const [postTags, setPostTags] = useState([]);
   const [postReads, setPostReads] = useState([]);
   const [postReplies, setPostReplies] = useState([]);
+  const [postLikes, setPostLikes] = useState([]);
+  const [dmConversations, setDmConversations] = useState([]);
   const [manualAlerts, setManualAlerts] = useState([]);
   const [manualAlertTags, setManualAlertTags] = useState([]);
   const [zeusConversations, setZeusConversations] = useState([]);
@@ -1955,12 +1957,12 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData, postLikesData, dmConversationsData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
           db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
           db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(), db.fetchZeusConversations(),
-          db.fetchPostReads(), db.fetchPostReplies(),
+          db.fetchPostReads(), db.fetchPostReplies(), db.fetchPostLikes(), db.fetchDmConversations(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
@@ -1969,6 +1971,7 @@ export default function App() {
         setPostTags(postTagsData); setManualAlerts(manualAlertsData); setManualAlertTags(manualAlertTagsData);
         setZeusConversations(zeusConversationsData);
         setPostReads(postReadsData); setPostReplies(postRepliesData);
+        setPostLikes(postLikesData); setDmConversations(dmConversationsData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -1994,6 +1997,8 @@ export default function App() {
       ["fluxo_post_tags", setPostTags, db.fetchPostTags],
       ["fluxo_post_reads", setPostReads, db.fetchPostReads],
       ["fluxo_post_replies", setPostReplies, db.fetchPostReplies],
+      ["fluxo_post_likes", setPostLikes, db.fetchPostLikes],
+      ["fluxo_dm_conversations", setDmConversations, db.fetchDmConversations],
       ["fluxo_alerts", setManualAlerts, db.fetchAlerts],
       ["fluxo_alert_tags", setManualAlertTags, db.fetchAlertTags],
       ["fluxo_zeus_conversations", setZeusConversations, db.fetchZeusConversations],
@@ -2203,13 +2208,15 @@ export default function App() {
       <Sidebar tab={tab} setTab={setTab} alertCount={alertCount} demandCount={demandCount} role={role} pendingByTab={pendingByTab} />
       <div style={{ flex: 1, padding: "22px 32px", overflowX: "hidden" }}>
         <TopBar theme={theme} setTheme={setTheme} me={myProfile} notifications={notifications} setNotifications={setNotifications} />
-        {tab === "novidades" && (
-          <NovidadesView
+        {tab === "threads" && (
+          <ThreadsView
             posts={posts} setPosts={setPosts}
             postRecipients={postRecipients} setPostRecipients={setPostRecipients}
             postTags={postTags} setPostTags={setPostTags}
             postReads={postReads} setPostReads={setPostReads}
             postReplies={postReplies} setPostReplies={setPostReplies}
+            postLikes={postLikes} setPostLikes={setPostLikes}
+            dmConversations={dmConversations} setDmConversations={setDmConversations}
             themes={themes} setThemes={setThemes}
             clients={clients} team={team} me={myProfile} role={role}
           />

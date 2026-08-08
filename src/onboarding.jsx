@@ -4,7 +4,7 @@ import { Rss, Users, TrendingUp, Bell, ClipboardList, Megaphone, UserCog, Sparkl
 
 const STEPS_ADMIN = [
   { icon: Sparkles, title: "Bem-vindo(a) ao Fluxo", text: "Um tour rápido pra você já sair sabendo onde encontrar cada coisa." },
-  { icon: Rss, title: "Novidades", text: "A timeline do time — poste avisos, filtre por tema ou cliente, marque pessoas específicas ou o time todo." },
+  { icon: Rss, title: "Threads", text: "A timeline do time — poste avisos, mande mensagem direta pra alguém, marque pessoas específicas ou o time todo." },
   { icon: Users, title: "Clientes", text: "Cadastre seus clientes aqui: unidades, indicadores prioritários e briefing de diagnóstico." },
   { icon: TrendingUp, title: "Dashboard", text: "Converse com o Zeus: ele gera dashboards ao vivo a partir de uma planilha, analisa clientes e pode até criar alertas e demandas por você." },
   { icon: Bell, title: "Alertas", text: "O sistema compara os períodos sozinho e avisa quando algo foge do esperado." },
@@ -15,7 +15,7 @@ const STEPS_ADMIN = [
 
 const STEPS_STAFF = [
   { icon: Sparkles, title: "Bem-vindo(a) ao Fluxo", text: "Um tour rápido pra você já sair sabendo onde encontrar cada coisa." },
-  { icon: Rss, title: "Novidades", text: "A timeline do time — poste avisos, filtre por tema ou cliente, veja o que te marcaram." },
+  { icon: Rss, title: "Threads", text: "A timeline do time — poste avisos, mande mensagem direta pra alguém, veja o que te marcaram." },
   { icon: ClipboardList, title: "Minhas demandas", text: "Suas tarefas atribuídas — do recebimento até a conclusão, com comprovação quando pedido." },
 ];
 
