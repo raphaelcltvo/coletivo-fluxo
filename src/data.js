@@ -147,7 +147,9 @@ const demandFromRow = (r) => ({
   status: r.status,
   origin: r.origin,
   type: r.type,
-  assigneeId: r.assignee_id || "",
+  assigneeIds: r.assignee_ids || [],
+  demandTypeId: r.demand_type_id || "",
+  customFields: r.custom_fields || {},
   recurring: r.recurring || { enabled: false, freq: "" },
   briefing: r.briefing || "",
   attachments: r.attachments || [],
@@ -179,7 +181,9 @@ const demandToRow = (d) => ({
   status: d.status,
   origin: d.origin,
   type: d.type,
-  assignee_id: d.assigneeId || null,
+  assignee_ids: d.assigneeIds || [],
+  demand_type_id: d.demandTypeId || null,
+  custom_fields: d.customFields || {},
   recurring: d.recurring || { enabled: false, freq: "" },
   briefing: d.briefing || "",
   attachments: d.attachments || [],
@@ -224,6 +228,67 @@ export async function updateDemand(demand) {
 export async function deleteDemand(id) {
   const { error } = await supabase.from("fluxo_demands").delete().eq("id", id);
   check(error);
+}
+
+/* ---------------------------- tipos de demanda (configurações) ---------------------------- */
+
+const demandTypeFromRow = (r) => ({ id: r.id, name: r.name });
+const demandTypeFieldFromRow = (r) => ({
+  id: r.id,
+  typeId: r.type_id,
+  label: r.label,
+  fieldType: r.field_type,
+  options: r.options || [],
+  dependsOnFieldId: r.depends_on_field_id || "",
+  dependsOnValue: r.depends_on_value || "",
+  sortOrder: r.sort_order ?? 0,
+});
+
+export async function fetchDemandTypes() {
+  const { data, error } = await supabase.from("fluxo_demand_types").select("*").order("created_at");
+  check(error);
+  return data.map(demandTypeFromRow);
+}
+
+export async function insertDemandType(type) {
+  const { error } = await supabase.from("fluxo_demand_types").insert({ id: type.id, name: type.name });
+  check(error);
+}
+
+export async function deleteDemandType(id) {
+  const { error } = await supabase.from("fluxo_demand_types").delete().eq("id", id);
+  check(error);
+}
+
+export async function fetchDemandTypeFields() {
+  const { data, error } = await supabase.from("fluxo_demand_type_fields").select("*").order("sort_order");
+  check(error);
+  return data.map(demandTypeFieldFromRow);
+}
+
+export async function insertDemandTypeField(field) {
+  const { error } = await supabase.from("fluxo_demand_type_fields").insert({
+    id: field.id, type_id: field.typeId, label: field.label, field_type: field.fieldType,
+    options: field.options || [], depends_on_field_id: field.dependsOnFieldId || null,
+    depends_on_value: field.dependsOnValue || null, sort_order: field.sortOrder || 0,
+  });
+  check(error);
+}
+
+export async function deleteDemandTypeField(id) {
+  const { error } = await supabase.from("fluxo_demand_type_fields").delete().eq("id", id);
+  check(error);
+}
+
+/* -------------------------------- anexos (upload real) -------------------------------- */
+
+export async function uploadAttachment(file) {
+  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
+  const path = `${Math.random().toString(36).slice(2, 10)}-${Date.now()}${ext}`;
+  const { error } = await supabase.storage.from("fluxo-attachments").upload(path, file);
+  check(error);
+  const { data } = supabase.storage.from("fluxo-attachments").getPublicUrl(path);
+  return { name: file.name, url: data.publicUrl, size: file.size, mimeType: file.type };
 }
 
 /* -------------------------------- notifications -------------------------------- */

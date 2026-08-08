@@ -7,7 +7,7 @@ import {
   Users, ClipboardList, TrendingUp, Bell, FileText, MessageSquare,
   Plus, X, ChevronRight, Clock, Copy, Trash2, ArrowUpRight, ArrowDownRight,
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
-  Send, Megaphone, CalendarClock, Zap, LogOut, Rss,
+  Send, Megaphone, CalendarClock, Zap, LogOut, Rss, Settings,
 } from "lucide-react";
 import { ThreadsView, TagPicker, ThemeManager, resolveTone } from "./threads.jsx";
 import { Onboarding } from "./onboarding.jsx";
@@ -41,6 +41,7 @@ const fmtVal = (v, fmt) => {
   return n.toLocaleString("pt-BR");
 };
 
+const ROLE_LABEL = { atendimento: "Atendimento", criacao: "Criação", admin: "Admin" };
 const DELIVERABLE_TYPES = ["Relatório interno", "Dash para o cliente", "Apresentação / reunião"];
 const FREQS = ["Diário", "Semanal", "Quinzenal", "Mensal", "Trimestral"];
 const DEMAND_TYPES = [
@@ -128,7 +129,7 @@ function generateDashDemandsForMonth(clients, existing) {
           status: "aberta",
           origin: "sistema",
           type,
-          assigneeId: "",
+          assigneeIds: [],
           recurring: { enabled: false, freq: "" },
           briefing: "",
           attachments: [],
@@ -194,12 +195,14 @@ function evaluateTimeRules(rules, clients, demands, fireLog, viewerId) {
         if (target.toISOString().slice(0, 10) !== todayKey) return;
         const key = `${rule.id}:${d.id}:${todayKey}`;
         if (fireLog.includes(key)) return;
-        const recipient = rule.recipientMode === "responsavel" ? d.assigneeId : rule.recipientId;
-        if (!recipient) return;
+        const recipients = rule.recipientMode === "responsavel" ? (d.assigneeIds || []) : [rule.recipientId].filter(Boolean);
+        if (!recipients.length) return;
         const client = clients.find((c) => c.id === d.clientId);
         const message = renderTemplate(rule.message, d, client);
-        if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: recipient }, message, client, viewerId));
-        else notifs.push({ id: uid(), memberId: recipient, message, demandId: d.id, read: false, createdAt: Date.now() });
+        recipients.forEach((recipient) => {
+          if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: recipient }, message, client, viewerId));
+          else notifs.push({ id: uid(), memberId: recipient, message, demandId: d.id, read: false, createdAt: Date.now() });
+        });
         newKeys.push(key);
       });
     }
@@ -224,11 +227,13 @@ function evaluateActionRules(rules, trigger, demand, client, extra = {}, viewerI
   rules.filter((r) => r.active && r.trigger === trigger).forEach((rule) => {
     if (trigger !== "alerta_disparado" && rule.demandTypeFilter !== "todos" && demand.type !== rule.demandTypeFilter) return;
     if (trigger === "status_mudou" && rule.statusAlvo && rule.statusAlvo !== extra.newStatus) return;
-    const recipient = rule.recipientMode === "responsavel" ? demand?.assigneeId : rule.recipientId;
-    if (!recipient) return;
+    const recipients = rule.recipientMode === "responsavel" ? (demand?.assigneeIds || []) : [rule.recipientId].filter(Boolean);
+    if (!recipients.length) return;
     const message = renderTemplate(rule.message, demand, client);
-    if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: recipient }, message, client, viewerId));
-    else notifs.push({ id: uid(), memberId: recipient, message, demandId: demand?.id || null, read: false, createdAt: Date.now() });
+    recipients.forEach((recipient) => {
+      if (rule.action === "alerta") alertsToCreate.push(alertFromRule({ ...rule, _recipient: recipient }, message, client, viewerId));
+      else notifs.push({ id: uid(), memberId: recipient, message, demandId: demand?.id || null, read: false, createdAt: Date.now() });
+    });
   });
   return { notifs, alertsToCreate };
 }
@@ -247,7 +252,7 @@ function generateWeeklyRoutine(clients, team, demands) {
   const owners = [...new Set(clients.map((c) => c.portfolioOwnerId).filter(Boolean))];
   const out = [];
   owners.forEach((ownerId) => {
-    const dup = demands.some((d) => d.type === "rotina_semanal" && d.assigneeId === ownerId && d.weekKey === weekKey);
+    const dup = demands.some((d) => d.type === "rotina_semanal" && (d.assigneeIds || []).includes(ownerId) && d.weekKey === weekKey);
     if (dup) return;
     const myClients = clients.filter((c) => c.portfolioOwnerId === ownerId);
     out.push({
@@ -261,7 +266,7 @@ function generateWeeklyRoutine(clients, team, demands) {
       status: "aberta",
       origin: "sistema",
       type: "rotina_semanal",
-      assigneeId: ownerId,
+      assigneeIds: [ownerId],
       recurring: { enabled: false, freq: "" },
       briefing: "",
       attachments: [],
@@ -294,7 +299,7 @@ function generateDailyMysteryReview(clients, team, demands) {
   const eligible = staff.filter((s) => s.id !== client.portfolioOwnerId);
   const pool = eligible.length > 0 ? eligible : staff;
   const lastByReviewer = {};
-  past.forEach((d) => { if (!lastByReviewer[d.assigneeId] || d.dayKey > lastByReviewer[d.assigneeId]) lastByReviewer[d.assigneeId] = d.dayKey; });
+  past.forEach((d) => { const rid = (d.assigneeIds || [])[0]; if (rid && (!lastByReviewer[rid] || d.dayKey > lastByReviewer[rid])) lastByReviewer[rid] = d.dayKey; });
   const reviewer = [...pool].sort((a, b) => (lastByReviewer[a.id] || "0000-00-00").localeCompare(lastByReviewer[b.id] || "0000-00-00"))[0];
 
   const platform = REVIEW_PLATFORMS[Math.floor(Math.random() * REVIEW_PLATFORMS.length)];
@@ -310,7 +315,7 @@ function generateDailyMysteryReview(clients, team, demands) {
     status: "aberta",
     origin: "sistema",
     type: "revisao_oculta",
-    assigneeId: reviewer.id,
+    assigneeIds: [reviewer.id],
     recurring: { enabled: false, freq: "" },
     briefing: "",
     attachments: [],
@@ -385,7 +390,7 @@ const Badge = ({ children, tone = "muted" }) => {
   );
 };
 
-const Modal = ({ title, onClose, children, wide }) => (
+const Modal = ({ title, subtitle, onClose, children, wide }) => (
   <div
     style={{ position: "fixed", inset: 0, background: "rgba(8,9,13,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 50, overflowY: "auto" }}
     onClick={onClose}
@@ -394,11 +399,14 @@ const Modal = ({ title, onClose, children, wide }) => (
       onClick={(e) => e.stopPropagation()}
       style={{ background: C.surface, border: `1px solid ${C.borderLight}`, borderRadius: 14, width: "100%", maxWidth: wide ? 720 : 520, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,.25)" }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h2 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 700, letterSpacing: 0.3, color: C.text, margin: 0, textTransform: "uppercase" }}>
-          {title}
-        </h2>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 700, letterSpacing: 0.3, color: C.text, margin: 0, textTransform: "uppercase" }}>
+            {title}
+          </h2>
+          {subtitle && <p style={{ fontSize: 12.5, color: C.muted, margin: "4px 0 0" }}>{subtitle}</p>}
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", padding: 4, flexShrink: 0 }}>
           <X size={20} />
         </button>
       </div>
@@ -442,7 +450,7 @@ function TopBar({ theme, setTheme, me, notifications, setNotifications }) {
     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 18 }}>
       <div style={{ fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ color: C.text, fontWeight: 600 }}>{me?.name}</span>
-        <span>({me?.role === "admin" ? "Admin" : "Atendimento"})</span>
+        <span>({ROLE_LABEL[me?.role] || "Atendimento"})</span>
       </div>
       <button
         onClick={() => supabase.auth.signOut()}
@@ -517,6 +525,7 @@ const NAV_ADMIN = [
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
   { id: "relatorios", label: "Relatórios", icon: FileText },
   { id: "reguas", label: "Réguas de comunicação", icon: Megaphone },
+  { id: "config", label: "Configurações", icon: Settings },
   { id: "equipe", label: "Equipe & Acessos", icon: UserCog },
 ];
 const NAV_STAFF = [
@@ -616,6 +625,7 @@ function AccessForm({ onSave, onClose }) {
       <Field label="Perfil de acesso">
         <select style={inputStyle} value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="atendimento">Atendimento — só vê e executa as demandas atribuídas a ela</option>
+          <option value="criacao">Criação — só vê e executa as demandas atribuídas a ela</option>
           <option value="admin">Admin (Gestor) — acesso completo</option>
         </select>
       </Field>
@@ -627,6 +637,132 @@ function AccessForm({ onSave, onClose }) {
         </Btn>
       </div>
     </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* CONFIGURAÇÕES — TIPOS DE DEMANDA COM CAMPOS CONDICIONAIS                */
+/* ---------------------------------------------------------------------- */
+const FIELD_TYPE_LABEL = { texto: "Texto", numero: "Número", selecao: "Seleção" };
+
+function TypeFieldsEditor({ type, fields, setDemandTypeFields }) {
+  const [label, setLabel] = useState("");
+  const [fieldType, setFieldType] = useState("texto");
+  const [optionsText, setOptionsText] = useState("");
+  const [dependsOnFieldId, setDependsOnFieldId] = useState("");
+  const [dependsOnValue, setDependsOnValue] = useState("");
+  const dependsOnField = fields.find((f) => f.id === dependsOnFieldId);
+
+  const addField = () => {
+    if (!label.trim()) return;
+    const f = {
+      id: uid(), typeId: type.id, label: label.trim(), fieldType,
+      options: fieldType === "selecao" ? optionsText.split(",").map((s) => s.trim()).filter(Boolean) : [],
+      dependsOnFieldId: dependsOnFieldId || "", dependsOnValue: dependsOnFieldId ? dependsOnValue : "",
+      sortOrder: fields.length,
+    };
+    setDemandTypeFields((fs) => [...fs, f]);
+    db.insertDemandTypeField(f).catch((e) => console.error(e));
+    setLabel(""); setOptionsText(""); setDependsOnFieldId(""); setDependsOnValue("");
+  };
+
+  const removeField = (id) => {
+    setDemandTypeFields((fs) => fs.filter((f) => f.id !== id));
+    db.deleteDemandTypeField(id).catch((e) => console.error(e));
+  };
+
+  return (
+    <div style={{ padding: "0 16px 16px 16px", borderTop: `1px solid ${C.border}` }}>
+      <div style={{ display: "grid", gap: 6, margin: "12px 0" }}>
+        {fields.map((f) => (
+          <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.text }}>
+            <span><b>{f.label}</b> — {FIELD_TYPE_LABEL[f.fieldType]}{f.options.length ? ` (${f.options.join(", ")})` : ""}</span>
+            {f.dependsOnFieldId && (
+              <span style={{ color: C.mutedDim, fontSize: 11.5 }}>
+                depende de "{fields.find((x) => x.id === f.dependsOnFieldId)?.label}" = {f.dependsOnValue}
+              </span>
+            )}
+            <button onClick={() => removeField(f.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 11.5 }}>remover</button>
+          </div>
+        ))}
+        {fields.length === 0 && <div style={{ fontSize: 12, color: C.mutedDim }}>Nenhum campo ainda.</div>}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input style={{ ...inputStyle, flex: "1 1 160px" }} placeholder="Nome do campo (ex: Duração)" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <select style={{ ...inputStyle, width: 120 }} value={fieldType} onChange={(e) => setFieldType(e.target.value)}>
+          {Object.entries(FIELD_TYPE_LABEL).map(([id, l]) => <option key={id} value={id}>{l}</option>)}
+        </select>
+        {fieldType === "selecao" && (
+          <input style={{ ...inputStyle, flex: "1 1 160px" }} placeholder="Opções separadas por vírgula" value={optionsText} onChange={(e) => setOptionsText(e.target.value)} />
+        )}
+        {fields.length > 0 && (
+          <select style={{ ...inputStyle, width: 170 }} value={dependsOnFieldId} onChange={(e) => { setDependsOnFieldId(e.target.value); setDependsOnValue(""); }}>
+            <option value="">Sempre aparece</option>
+            {fields.map((f) => <option key={f.id} value={f.id}>Depende de: {f.label}</option>)}
+          </select>
+        )}
+        {dependsOnFieldId && (
+          dependsOnField?.fieldType === "selecao" ? (
+            <select style={{ ...inputStyle, width: 140 }} value={dependsOnValue} onChange={(e) => setDependsOnValue(e.target.value)}>
+              <option value="">valor esperado...</option>
+              {dependsOnField.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          ) : (
+            <input style={{ ...inputStyle, width: 140 }} placeholder="valor esperado" value={dependsOnValue} onChange={(e) => setDependsOnValue(e.target.value)} />
+          )
+        )}
+        <Btn onClick={addField}><Plus size={13} /> Campo</Btn>
+      </div>
+    </div>
+  );
+}
+
+function ConfigView({ demandTypes, setDemandTypes, demandTypeFields, setDemandTypeFields }) {
+  const [expanded, setExpanded] = useState(null);
+  const [newTypeName, setNewTypeName] = useState("");
+
+  const addType = () => {
+    if (!newTypeName.trim()) return;
+    const t = { id: uid(), name: newTypeName.trim() };
+    setDemandTypes((ts) => [...ts, t]);
+    db.insertDemandType(t).catch((e) => console.error(e));
+    setNewTypeName("");
+    setExpanded(t.id);
+  };
+
+  const removeType = (id) => {
+    setDemandTypes((ts) => ts.filter((t) => t.id !== id));
+    setDemandTypeFields((fs) => fs.filter((f) => f.typeId !== id));
+    db.deleteDemandType(id).catch((e) => console.error(e));
+  };
+
+  return (
+    <div>
+      <ViewHeader title="Configurações" subtitle="Cadastre tipos de demanda com campos próprios" />
+      <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 10 }}>Tipos de demanda</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <input style={{ ...inputStyle, flex: 1 }} placeholder="Nome do tipo (ex: Peça para redes sociais)" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addType()} />
+        <Btn onClick={addType}><Plus size={14} /> Novo tipo</Btn>
+      </div>
+      {demandTypes.length === 0 && <EmptyState text="Nenhum tipo de demanda customizado ainda." />}
+      <div style={{ display: "grid", gap: 10 }}>
+        {demandTypes.map((t) => {
+          const fields = demandTypeFields.filter((f) => f.typeId === t.id).sort((a, b) => a.sortOrder - b.sortOrder);
+          const isOpen = expanded === t.id;
+          return (
+            <Ticket key={t.id} style={{ padding: 0, overflow: "hidden" }}>
+              <div onClick={() => setExpanded(isOpen ? null : t.id)} style={{ padding: 16, display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <ChevronRight size={16} color={C.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                <div style={{ flex: 1, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 16, fontWeight: 700, color: C.text }}>{t.name}</div>
+                <span style={{ fontSize: 11.5, color: C.mutedDim }}>{fields.length} campo{fields.length !== 1 ? "s" : ""}</span>
+                <button onClick={(e) => { e.stopPropagation(); removeType(t.id); }} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer" }}><Trash2 size={15} /></button>
+              </div>
+              {isOpen && <TypeFieldsEditor type={t} fields={fields} setDemandTypeFields={setDemandTypeFields} />}
+            </Ticket>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -654,16 +790,17 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
       />
       <div style={{ background: C.brandDim, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 16px", fontSize: 12.5, color: C.text, marginBottom: 18, display: "flex", gap: 10 }}>
         <Lock size={15} color={C.brand} style={{ flexShrink: 0, marginTop: 1 }} />
-        <span>Login real por e-mail e senha. A pessoa fica <b>convite pendente</b> até abrir o e-mail e definir a senha. O papel (Admin/Atendimento) define o que cada pessoa enxerga no menu.</span>
+        <span>Login real por e-mail e senha. A pessoa fica <b>convite pendente</b> até abrir o e-mail e definir a senha. O papel (Admin/Atendimento/Criação) define o que cada pessoa enxerga no menu.</span>
       </div>
       <div style={{ display: "grid", gap: 10 }}>
         {team.map((m) => {
-          const mine = demands.filter((d) => d.assigneeId === m.id);
+          const hasQueue = m.role !== "admin";
+          const mine = demands.filter((d) => (d.assigneeIds || []).includes(m.id));
           const open = mine.filter((d) => d.status !== "concluida");
           const isOpen = openId === m.id;
           return (
             <Ticket key={m.id} style={{ padding: 0, overflow: "hidden" }}>
-              <div style={{ padding: 14, display: "flex", alignItems: "center", gap: 14, cursor: m.role === "atendimento" ? "pointer" : "default" }} onClick={() => m.role === "atendimento" && setOpenId(isOpen ? null : m.id)}>
+              <div style={{ padding: 14, display: "flex", alignItems: "center", gap: 14, cursor: hasQueue ? "pointer" : "default" }} onClick={() => hasQueue && setOpenId(isOpen ? null : m.id)}>
                 <div style={{ width: 36, height: 36, borderRadius: 999, background: m.role === "admin" ? C.brandDim : C.surface3, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: m.role === "admin" ? C.brand : C.muted, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 15, flexShrink: 0 }}>
                   {m.name.slice(0, 1).toUpperCase()}
                 </div>
@@ -671,20 +808,20 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{m.name}</div>
                   <div style={{ fontSize: 12, color: C.muted }}>{m.email}</div>
                 </div>
-                {m.role === "atendimento" && (
+                {hasQueue && (
                   <div style={{ fontSize: 11.5, color: C.muted, display: "flex", gap: 8 }}>
                     <span><b style={{ color: C.text }}>{open.length}</b> em aberto</span>
                     <span>·</span>
                     <span><b style={{ color: C.text }}>{mine.length}</b> no total</span>
                   </div>
                 )}
-                <Badge tone={m.role === "admin" ? "brand" : "muted"}>{m.role === "admin" ? "Admin" : "Atendimento"}</Badge>
+                <Badge tone={m.role === "admin" ? "brand" : "muted"}>{ROLE_LABEL[m.role] || m.role}</Badge>
                 <Badge tone={m.status === "ativo" ? "teal" : m.status === "inativo" ? "red" : "amber"}>{m.status}</Badge>
                 <Btn variant="ghost" style={{ padding: "6px 10px", fontSize: 11.5 }} onClick={(e) => { e.stopPropagation(); toggleStatus(m.id); }}>{m.status === "ativo" ? "Desativar" : "Ativar"}</Btn>
                 <button onClick={(e) => { e.stopPropagation(); remove(m.id); }} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer" }}><Trash2 size={15} /></button>
-                {m.role === "atendimento" && <ChevronRight size={16} color={C.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} />}
+                {hasQueue && <ChevronRight size={16} color={C.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }} />}
               </div>
-              {isOpen && m.role === "atendimento" && (
+              {isOpen && hasQueue && (
                 <div style={{ padding: "0 16px 16px 64px", borderTop: `1px solid ${C.border}` }}>
                   <div style={{ marginTop: 12, marginBottom: 10 }}>
                     <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -1289,7 +1426,7 @@ function AlertsView({ clients, entries, onCreateDemand, demands, manualAlerts, m
                   id: uid(), title: `Investigar ${a.direction} de ${a.metricLabel} — ${a.unitName}`, clientId: a.clientId, unitId: a.unitId,
                   description: `${a.metricLabel} teve ${a.direction} de ${a.pctChange.toFixed(1)}% (${fmtVal(a.prevVal, a.fmt)} → ${fmtVal(a.curVal, a.fmt)}) comparado ao ${a.basis}.`,
                   priority: a.isPriority ? "urgente" : "normal", dueDate: "", status: "aberta", origin: "alerta", originAlertKey: a.id,
-                  type: "geral", assigneeId: "", recurring: { enabled: false, freq: "" }, briefing: "", attachments: [], requiresProof: false, proofQuestion: "", proof: null, proofStatus: "pendente", actions: [], createdAt: Date.now(),
+                  type: "geral", assigneeIds: [], recurring: { enabled: false, freq: "" }, briefing: "", attachments: [], requiresProof: false, proofQuestion: "", proof: null, proofStatus: "pendente", actions: [], createdAt: Date.now(),
                 })}
               >
                 {already ? <CheckCircle2 size={14} /> : <Plus size={14} />}
@@ -1323,7 +1460,7 @@ function AlertsView({ clients, entries, onCreateDemand, demands, manualAlerts, m
                 onClick={() => onCreateDemand({
                   id: uid(), title: ins.title + ` — ${ins.unitName}`, clientId: ins.clientId, unitId: ins.unitId,
                   description: ins.suggestion, priority: "normal", dueDate: "", status: "aberta", origin: "sistema", originInsightKey: ins.id,
-                  type: "geral", assigneeId: "", recurring: { enabled: false, freq: "" }, briefing: "", attachments: [], requiresProof: false, proofQuestion: "", proof: null, proofStatus: "pendente", actions: [], createdAt: Date.now(),
+                  type: "geral", assigneeIds: [], recurring: { enabled: false, freq: "" }, briefing: "", attachments: [], requiresProof: false, proofQuestion: "", proof: null, proofStatus: "pendente", actions: [], createdAt: Date.now(),
                 })}
               >
                 {already ? <CheckCircle2 size={14} /> : <Plus size={14} />}
@@ -1346,10 +1483,24 @@ const STATUSES = [
   { id: "aguardando", label: "Aguardando cliente" },
   { id: "concluida", label: "Concluída" },
 ];
-const PRIORITIES = { urgente: C.red, normal: C.amber, baixa: C.brand };
+const PRIORITIES = { urgente: C.red, normal: C.amber, baixa: C.teal };
+
+/* Prioridade "de verdade" pro card: escala conforme o prazo se aproxima,
+   independente do que o emissor marcou originalmente (que continua salvo). */
+function computeUrgency(demand) {
+  if (demand.status === "concluida" || !demand.dueDate) return demand.priority;
+  if (demand.priority === "urgente") return "urgente";
+  const hoursLeft = (new Date(demand.dueDate) - Date.now()) / 3600000;
+  if (hoursLeft <= 24) return "urgente";
+  if (demand.priority === "baixa" && hoursLeft > 72) return "baixa";
+  return "normal";
+}
 const TYPE_TONE = { geral: "muted", cobranca: "amber", produto: "brand", dash_parcial: "teal", dash_consolidado: "teal", rotina_semanal: "brand", revisao_oculta: "amber" };
 
-function DemandForm({ clients, team, onSave, onClose }) {
+const ATTACHMENT_ACCEPT = "video/*,image/*,.xlsx,.xls,.csv,.pdf,.doc,.docx";
+const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024;
+
+function DemandForm({ clients, team, demandTypes = [], demandTypeFields = [], onSave, onClose }) {
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState(clients[0]?.id || "");
   const [unitId, setUnitId] = useState("");
@@ -1357,34 +1508,48 @@ function DemandForm({ clients, team, onSave, onClose }) {
   const [priority, setPriority] = useState("normal");
   const [dueDate, setDueDate] = useState("");
   const [type, setType] = useState("geral");
-  const [assigneeId, setAssigneeId] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState([]);
   const [recurFreq, setRecurFreq] = useState("Mensal");
   const [briefing, setBriefing] = useState("");
   const [attachments, setAttachments] = useState([]);
-  const [attName, setAttName] = useState("");
-  const [attUrl, setAttUrl] = useState("");
-  const [requiresProof, setRequiresProof] = useState(REQUIRES_PROOF_DEFAULT.geral);
-  const [proofQuestion, setProofQuestion] = useState(PROOF_DEFAULTS.geral);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [customFields, setCustomFields] = useState({});
 
   const client = clients.find((c) => c.id === clientId);
   const staff = team.filter((t) => t.status === "ativo");
   const isDash = type === "dash_parcial" || type === "dash_consolidado";
   const effectiveDue = isDash ? nextFixedDashDate(type) : dueDate;
+  const customType = demandTypes.find((t) => t.id === type);
+  const customTypeFields = customType ? demandTypeFields.filter((f) => f.typeId === type) : [];
+  const visibleCustomFields = customTypeFields.filter((f) => !f.dependsOnFieldId || customFields[f.dependsOnFieldId] === f.dependsOnValue);
 
   const handleTypeChange = (t) => {
     setType(t);
-    setRequiresProof(REQUIRES_PROOF_DEFAULT[t]);
-    setProofQuestion(PROOF_DEFAULTS[t]);
+    setCustomFields({});
   };
 
-  const addAttachment = () => {
-    if (!attUrl.trim()) return;
-    setAttachments((a) => [...a, { id: uid(), name: attName.trim() || "Anexo", url: attUrl.trim() }]);
-    setAttName(""); setAttUrl("");
+  const toggleAssignee = (id) => setAssigneeIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  const uploadFiles = async (files) => {
+    setUploadError("");
+    const tooBig = [...files].find((f) => f.size > MAX_ATTACHMENT_SIZE);
+    if (tooBig) { setUploadError(`"${tooBig.name}" passa de 25MB.`); return; }
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const uploaded = await db.uploadAttachment(file);
+        setAttachments((a) => [...a, { id: uid(), ...uploaded }]);
+      }
+    } catch (e) {
+      setUploadError(e.message || "Não foi possível subir o arquivo.");
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
-    <Modal title="Nova demanda" onClose={onClose} wide>
+    <Modal title="Nova demanda" subtitle="Preencha o briefing detalhadamente." onClose={onClose} wide>
       <div style={{ maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
         <Field label="Título">
           <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Ajustar budget de anúncio" />
@@ -1397,6 +1562,11 @@ function DemandForm({ clients, team, onSave, onClose }) {
         <Field label="Tipo de demanda">
           <select style={inputStyle} value={type} onChange={(e) => handleTypeChange(e.target.value)}>
             {DEMAND_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            {demandTypes.length > 0 && (
+              <optgroup label="Tipos personalizados">
+                {demandTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </optgroup>
+            )}
           </select>
         </Field>
 
@@ -1409,24 +1579,28 @@ function DemandForm({ clients, team, onSave, onClose }) {
         )}
 
         {type === "produto" && (
-          <>
-            <Field label="Briefing" hint="Descreva o que precisa ser criado (categoria, produto, textos).">
-              <textarea style={{ ...inputStyle, minHeight: 70 }} value={briefing} onChange={(e) => setBriefing(e.target.value)} />
-            </Field>
-            <Field label="Anexos (fotos, referências, links de Drive)">
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <input style={{ ...inputStyle, flex: 1 }} placeholder="Nome do anexo" value={attName} onChange={(e) => setAttName(e.target.value)} />
-                <input style={{ ...inputStyle, flex: 2 }} placeholder="Link (Drive, Fotos, etc.)" value={attUrl} onChange={(e) => setAttUrl(e.target.value)} />
-                <Btn variant="ghost" onClick={addAttachment}><Plus size={14} /></Btn>
-              </div>
-              {attachments.map((a) => (
-                <div key={a.id} style={{ fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                  <Paperclip size={12} color={C.muted} /> {a.name} — <span style={{ color: C.brand }}>{a.url}</span>
-                </div>
-              ))}
-            </Field>
-          </>
+          <Field label="Briefing" hint="Descreva o que precisa ser criado (categoria, produto, textos).">
+            <textarea style={{ ...inputStyle, minHeight: 70 }} value={briefing} onChange={(e) => setBriefing(e.target.value)} />
+          </Field>
         )}
+
+        {customType && visibleCustomFields.map((f) => (
+          <Field key={f.id} label={f.label}>
+            {f.fieldType === "selecao" ? (
+              <select style={inputStyle} value={customFields[f.id] || ""} onChange={(e) => setCustomFields((c) => ({ ...c, [f.id]: e.target.value }))}>
+                <option value="">—</option>
+                {f.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            ) : (
+              <input
+                type={f.fieldType === "numero" ? "number" : "text"}
+                style={inputStyle}
+                value={customFields[f.id] || ""}
+                onChange={(e) => setCustomFields((c) => ({ ...c, [f.id]: e.target.value }))}
+              />
+            )}
+          </Field>
+        ))}
 
         {isDash ? (
           <div style={{ fontSize: 12.5, color: C.muted, display: "flex", alignItems: "center", gap: 6, marginBottom: 14, background: C.surface2, borderRadius: 8, padding: "9px 11px" }}>
@@ -1435,6 +1609,18 @@ function DemandForm({ clients, team, onSave, onClose }) {
         ) : (
           <Field label="Descrição"><textarea style={{ ...inputStyle, minHeight: 60 }} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         )}
+
+        <Field label="Anexos" hint="Vídeo, planilha, PDF, Word ou foto — até 25MB por arquivo.">
+          <input type="file" multiple accept={ATTACHMENT_ACCEPT} onChange={(e) => e.target.files.length && uploadFiles(e.target.files)} disabled={uploading} />
+          {uploading && <div style={{ fontSize: 11.5, color: C.mutedDim, marginTop: 6 }}>Enviando...</div>}
+          {uploadError && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>{uploadError}</div>}
+          {attachments.map((a) => (
+            <div key={a.id} style={{ fontSize: 12, color: C.text, display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <Paperclip size={12} color={C.muted} /> {a.name}
+              <button onClick={() => setAttachments((as) => as.filter((x) => x.id !== a.id))} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer", marginLeft: "auto" }}><X size={12} /></button>
+            </div>
+          ))}
+        </Field>
 
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
@@ -1449,25 +1635,25 @@ function DemandForm({ clients, team, onSave, onClose }) {
           )}
         </div>
 
-        <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer" }}>
-            <input type="checkbox" checked={requiresProof} onChange={(e) => setRequiresProof(e.target.checked)} />
-            Exigir comprovação para concluir (print/anexo ou resposta)
-          </label>
-          {requiresProof && (
-            <div style={{ marginTop: 10 }}>
-              <Field label="Pergunta de verificação" hint="Exibida para quem for concluir a demanda, junto do campo de anexo.">
-                <input style={inputStyle} value={proofQuestion} onChange={(e) => setProofQuestion(e.target.value)} placeholder="Ex: Anexou o print da conversa com o cliente?" />
-              </Field>
-            </div>
-          )}
-        </div>
-
-        <Field label="Responsável (Atendimento)" hint="A pessoa selecionada recebe notificação na plataforma e um link pronto de e-mail.">
-          <select style={inputStyle} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            <option value="">— não atribuído —</option>
-            {staff.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.role === "admin" ? "Admin" : "Atendimento"})</option>)}
-          </select>
+        <Field label="Responsável" hint="Uma ou mais pessoas — todas recebem notificação na plataforma.">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {staff.map((s) => {
+              const active = assigneeIds.includes(s.id);
+              return (
+                <label
+                  key={s.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, cursor: "pointer",
+                    background: active ? C.brandDim : C.surface2, color: active ? C.brand : C.muted,
+                    border: `1px solid ${active ? C.brand : C.border}`, borderRadius: 999, padding: "5px 12px", fontWeight: active ? 700 : 500,
+                  }}
+                >
+                  <input type="checkbox" checked={active} onChange={() => toggleAssignee(s.id)} style={{ margin: 0 }} />
+                  {s.name} ({ROLE_LABEL[s.role] || s.role})
+                </label>
+              );
+            })}
+          </div>
         </Field>
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
@@ -1476,8 +1662,10 @@ function DemandForm({ clients, team, onSave, onClose }) {
           disabled={!title.trim() || !clientId}
           onClick={() => onSave({
             id: uid(), title: title.trim(), clientId, unitId, description, priority, dueDate: isDash ? effectiveDue : dueDate,
-            status: "aberta", origin: "manual", type, assigneeId, recurring: { enabled: type === "cobranca", freq: recurFreq },
-            briefing, attachments, requiresProof, proofQuestion, proof: null, proofStatus: "pendente", actions: [], createdAt: Date.now(),
+            status: "aberta", origin: "manual", type, assigneeIds, recurring: { enabled: type === "cobranca", freq: recurFreq },
+            briefing, attachments, requiresProof: REQUIRES_PROOF_DEFAULT[type] || false, proofQuestion: PROOF_DEFAULTS[type] || "",
+            proof: null, proofStatus: "pendente", actions: [], createdAt: Date.now(),
+            demandTypeId: customType ? type : "", customFields,
           })}
         >
           Criar demanda
@@ -1487,7 +1675,7 @@ function DemandForm({ clients, team, onSave, onClose }) {
   );
 }
 
-function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [], themeGroups = [] }) {
+function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [], themeGroups = [], demandTypes = [] }) {
   const [showAction, setShowAction] = useState(false);
   const [actionType, setActionType] = useState("");
   const [actionDesc, setActionDesc] = useState("");
@@ -1496,8 +1684,9 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
   const [proofUrl, setProofUrl] = useState("");
   const [proofAnswer, setProofAnswer] = useState("");
   const unit = client?.units.find((u) => u.id === demand.unitId);
-  const assignee = team.find((t) => t.id === demand.assigneeId);
+  const assignees = (demand.assigneeIds || []).map((id) => team.find((t) => t.id === id)).filter(Boolean);
   const isDash = demand.type === "dash_parcial" || demand.type === "dash_consolidado";
+  const urgency = computeUrgency(demand);
   const proofSatisfied = !demand.requiresProof || ["enviada", "aprovada"].includes(demand.proofStatus);
 
   const addAction = () => {
@@ -1574,11 +1763,11 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
       )}
 
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demandTypeLabel(demand.type)}</Badge>
+        <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demand.demandTypeId ? (demandTypes.find((t) => t.id === demand.demandTypeId)?.name || "Tipo removido") : demandTypeLabel(demand.type)}</Badge>
         {demand.alertId && <Badge tone="brand">Alerta</Badge>}
         {tags.map((t) => <Badge key={t.id} tone={resolveTone(t, themeGroups)}>{t.name}</Badge>)}
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: PRIORITIES[demand.priority], border: `1px solid ${PRIORITIES[demand.priority]}`, borderRadius: 999, padding: "2px 7px", textTransform: "uppercase" }}>
-          {demand.priority}
+        <span title={urgency !== demand.priority ? `Prioridade original: ${demand.priority}` : undefined} style={{ fontSize: 10.5, fontWeight: 700, color: PRIORITIES[urgency], border: `1px solid ${PRIORITIES[urgency]}`, borderRadius: 999, padding: "2px 7px", textTransform: "uppercase" }}>
+          {urgency}
         </span>
         {demand.dueDate && (
           <span style={{ fontSize: 11, color: C.muted, display: "flex", alignItems: "center", gap: 3 }}>
@@ -1616,9 +1805,9 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
       )}
 
       <div style={{ marginTop: 8, fontSize: 11.5, color: C.muted, display: "flex", alignItems: "center", gap: 8 }}>
-        <span>Responsável: <b style={{ color: assignee ? C.text : C.mutedDim }}>{assignee ? assignee.name : "não atribuído"}</b></span>
-        {onNotify && assignee && (
-          <button onClick={onNotify} style={{ background: "none", border: "none", color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, fontSize: 11 }} title="Notificar responsável">
+        <span>Responsável: <b style={{ color: assignees.length ? C.text : C.mutedDim }}>{assignees.length ? assignees.map((a) => a.name).join(", ") : "não atribuído"}</b></span>
+        {onNotify && assignees.length > 0 && (
+          <button onClick={onNotify} style={{ background: "none", border: "none", color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, fontSize: 11 }} title="Notificar responsáveis">
             <Send size={11} /> Notificar
           </button>
         )}
@@ -1673,7 +1862,7 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
   );
 }
 
-function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules, themes = [], themeGroups = [], manualAlertTags = [], onCreateAlert }) {
+function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules, themes = [], themeGroups = [], manualAlertTags = [], onCreateAlert, demandTypes = [], demandTypeFields = [] }) {
   const dispatchRuleAlerts = (alertsToCreate) => {
     alertsToCreate.forEach(({ tagIds, ...alertRow }) => onCreateAlert?.(alertRow, tagIds).catch((e) => console.error(e)));
   };
@@ -1702,6 +1891,9 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
     if (!memberId) return;
     pushNotifications([{ id: uid(), memberId, message, demandId, read: false, createdAt: Date.now() }]);
   };
+  const pushNotificationToAll = (memberIds, message, demandId) => {
+    pushNotifications((memberIds || []).map((memberId) => ({ id: uid(), memberId, message, demandId, read: false, createdAt: Date.now() })));
+  };
 
   const update = (d) => {
     const prev = demands.find((x) => x.id === d.id);
@@ -1715,7 +1907,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
     }
     if (prev && prev.proofStatus !== "reprovada" && d.proofStatus === "reprovada") {
-      pushNotification(d.assigneeId, `Comprovação reprovada: refaça "${d.title}" e reenvie.`, d.id);
+      pushNotificationToAll(d.assigneeIds, `Comprovação reprovada: refaça "${d.title}" e reenvie.`, d.id);
     }
     // spawn next occurrence for recurring cobrança demands
     if (prev && prev.status !== "concluida" && d.status === "concluida" && d.type === "cobranca" && d.recurring?.enabled) {
@@ -1723,14 +1915,14 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       const clone = { ...d, id: uid(), status: "aberta", dueDate: nextDue, actions: [], proof: null, proofStatus: "pendente", createdAt: Date.now() };
       setDemands((ds) => [...ds, clone]);
       db.insertDemand(clone)
-        .then(() => pushNotification(d.assigneeId, `Nova cobrança recorrente: "${d.title}" — prazo ${nextDue}`, clone.id))
+        .then(() => pushNotificationToAll(d.assigneeIds, `Nova cobrança recorrente: "${d.title}" — prazo ${nextDue}`, clone.id))
         .catch((e) => console.error(e));
     }
     // card de Alerta concluído: a notificação de sino correspondente "sai"
     // (marca como lida), e — se o alerta era recorrente — nasce a próxima
     // ocorrência só pra essa pessoa (recorrência por pessoa).
     if (prev && prev.status !== "concluida" && d.status === "concluida" && d.alertId) {
-      const notif = notifications.find((n) => n.demandId === d.id && n.memberId === d.assigneeId);
+      const notif = notifications.find((n) => n.demandId === d.id && (d.assigneeIds || []).includes(n.memberId));
       if (notif && !notif.read) {
         setNotifications((ns) => ns.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
         db.markNotificationRead(notif.id).catch((e) => console.error(e));
@@ -1740,7 +1932,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
         const clone = { ...d, id: uid(), status: "aberta", dueDate: nextDue, actions: [], proof: null, proofStatus: "pendente", createdAt: Date.now() };
         setDemands((ds) => [...ds, clone]);
         db.insertDemand(clone)
-          .then(() => pushNotification(d.assigneeId, `Alerta: "${d.title}"`, clone.id))
+          .then(() => pushNotificationToAll(d.assigneeIds, `Alerta: "${d.title}"`, clone.id))
           .catch((e) => console.error(e));
       }
     }
@@ -1765,7 +1957,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
     if (created.length) {
       setDemands((ds) => [...ds, ...created]);
       db.insertDemands(created)
-        .then(() => pushNotifications(created.filter((d) => d.assigneeId).map((d) => ({ id: uid(), memberId: d.assigneeId, message: `Rotina do dia: "${d.title}"`, demandId: d.id, read: false, createdAt: Date.now() }))))
+        .then(() => pushNotifications(created.flatMap((d) => (d.assigneeIds || []).map((memberId) => ({ id: uid(), memberId, message: `Rotina do dia: "${d.title}"`, demandId: d.id, read: false, createdAt: Date.now() })))))
         .catch((e) => console.error(e));
     }
   };
@@ -1777,7 +1969,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       .then(() => {
         const client = clients.find((c) => c.id === d.clientId);
         const { notifs, alertsToCreate } = evaluateActionRules(rules, "demanda_criada", d, client, {}, currentUserId);
-        if (d.assigneeId) notifs.push({ id: uid(), memberId: d.assigneeId, message: `Nova demanda atribuída: "${d.title}"${d.dueDate ? " — prazo " + d.dueDate : ""}`, demandId: d.id, read: false, createdAt: Date.now() });
+        (d.assigneeIds || []).forEach((memberId) => notifs.push({ id: uid(), memberId, message: `Nova demanda atribuída: "${d.title}"${d.dueDate ? " — prazo " + d.dueDate : ""}`, demandId: d.id, read: false, createdAt: Date.now() }));
         pushNotifications(notifs);
         if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
       })
@@ -1785,14 +1977,14 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
   };
 
   const notifyAboutDemand = (d) => {
-    if (!d.assigneeId) return;
+    if (!(d.assigneeIds || []).length) return;
     const client = clients.find((c) => c.id === d.clientId);
-    pushNotification(d.assigneeId, `Lembrete de ${role === "admin" ? "gestão" : "equipe"}: "${d.title}" (${client?.name})`, d.id);
+    pushNotificationToAll(d.assigneeIds, `Lembrete de ${role === "admin" ? "gestão" : "equipe"}: "${d.title}" (${client?.name})`, d.id);
   };
 
-  let visibleDemands = role === "admin" ? demands : demands.filter((d) => d.assigneeId === currentUserId);
+  let visibleDemands = role === "admin" ? demands : demands.filter((d) => (d.assigneeIds || []).includes(currentUserId));
   if (role === "admin" && filterTag) visibleDemands = visibleDemands.filter((d) => (tagsByAlert[d.alertId] || []).includes(filterTag));
-  if (role === "admin" && filterPerson) visibleDemands = visibleDemands.filter((d) => d.assigneeId === filterPerson);
+  if (role === "admin" && filterPerson) visibleDemands = visibleDemands.filter((d) => (d.assigneeIds || []).includes(filterPerson));
 
   return (
     <div>
@@ -1840,13 +2032,14 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
                   onUpdate={update} onDelete={remove} onNotify={role === "admin" ? () => notifyAboutDemand(d) : null} role={role}
                   tags={(tagsByAlert[d.alertId] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
                   themeGroups={themeGroups}
+                  demandTypes={demandTypes}
                 />
               ))}
             </div>
           );
         })}
       </div>
-      {showForm && <DemandForm clients={clients} team={team} onClose={() => setShowForm(false)} onSave={saveNew} />}
+      {showForm && <DemandForm clients={clients} team={team} demandTypes={demandTypes} demandTypeFields={demandTypeFields} onClose={() => setShowForm(false)} onSave={saveNew} />}
     </div>
   );
 }
@@ -2007,6 +2200,8 @@ export default function App() {
   const [manualAlerts, setManualAlerts] = useState([]);
   const [manualAlertTags, setManualAlertTags] = useState([]);
   const [zeusConversations, setZeusConversations] = useState([]);
+  const [demandTypes, setDemandTypes] = useState([]);
+  const [demandTypeFields, setDemandTypeFields] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -2029,13 +2224,13 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData, postLikesData, dmConversationsData, themeGroupsData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData, postLikesData, dmConversationsData, themeGroupsData, demandTypesData, demandTypeFieldsData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
           db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
           db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(), db.fetchZeusConversations(),
           db.fetchPostReads(), db.fetchPostReplies(), db.fetchPostLikes(), db.fetchDmConversations(),
-          db.fetchThemeGroups(),
+          db.fetchThemeGroups(), db.fetchDemandTypes(), db.fetchDemandTypeFields(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
@@ -2046,6 +2241,7 @@ export default function App() {
         setPostReads(postReadsData); setPostReplies(postRepliesData);
         setPostLikes(postLikesData); setDmConversations(dmConversationsData);
         setThemeGroups(themeGroupsData);
+        setDemandTypes(demandTypesData); setDemandTypeFields(demandTypeFieldsData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -2067,6 +2263,8 @@ export default function App() {
       ["fluxo_communication_rules", setCommunicationRules, db.fetchRules],
       ["fluxo_themes", setThemes, db.fetchThemes],
       ["fluxo_theme_groups", setThemeGroups, db.fetchThemeGroups],
+      ["fluxo_demand_types", setDemandTypes, db.fetchDemandTypes],
+      ["fluxo_demand_type_fields", setDemandTypeFields, db.fetchDemandTypeFields],
       ["fluxo_posts", setPosts, db.fetchPosts],
       ["fluxo_post_recipients", setPostRecipients, db.fetchPostRecipients],
       ["fluxo_post_tags", setPostTags, db.fetchPostTags],
@@ -2089,8 +2287,8 @@ export default function App() {
   }, [loaded, myProfile?.status]);
 
   const alertCount = useMemo(() => computeAlerts(clients, entries).length, [clients, entries]);
-  const role = myProfile?.role === "admin" ? "admin" : "atendimento";
-  const demandCount = (role === "admin" ? demands : demands.filter((d) => d.assigneeId === myProfile?.id)).filter((d) => d.status !== "concluida").length;
+  const role = myProfile?.role || "atendimento";
+  const demandCount = (role === "admin" ? demands : demands.filter((d) => (d.assigneeIds || []).includes(myProfile?.id))).filter((d) => d.status !== "concluida").length;
 
   // Padrão geral do raiozinho: qualquer item do menu com algo pendente de resolver.
   const pendingByTab = useMemo(() => {
@@ -2157,7 +2355,7 @@ export default function App() {
               const demand = {
                 id: uid(), title: alert.title, clientId, unitId: "", description: alert.description,
                 priority: "normal", dueDate: alert.scheduledDate, status: "aberta", origin: "alerta_manual",
-                type: "geral", assigneeId: memberId, recurring: { enabled: alert.repeatFreq !== "nenhuma", freq: alert.repeatFreq },
+                type: "geral", assigneeIds: [memberId], recurring: { enabled: alert.repeatFreq !== "nenhuma", freq: alert.repeatFreq },
                 briefing: "", attachments: [], requiresProof: true,
                 proofQuestion: "Concluiu o que foi pedido nesse alerta?", proof: null, proofStatus: "pendente",
                 actions: [], alertId: alert.id, createdAt: Date.now(),
@@ -2308,10 +2506,11 @@ export default function App() {
             team={team} me={myProfile} onCreateAlert={createManualAlert}
           />
         )}
-        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} themes={themes} themeGroups={themeGroups} manualAlertTags={manualAlertTags} onCreateAlert={createManualAlert} />}
+        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} themes={themes} themeGroups={themeGroups} manualAlertTags={manualAlertTags} onCreateAlert={createManualAlert} demandTypes={demandTypes} demandTypeFields={demandTypeFields} />}
         {tab === "lembretes" && <RemindersView clients={clients} />}
         {tab === "relatorios" && role === "admin" && <ReportsView clients={clients} entries={entries} demands={demands} />}
         {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} themes={themes} setThemes={setThemes} themeGroups={themeGroups} setThemeGroups={setThemeGroups} />}
+        {tab === "config" && role === "admin" && <ConfigView demandTypes={demandTypes} setDemandTypes={setDemandTypes} demandTypeFields={demandTypeFields} setDemandTypeFields={setDemandTypeFields} />}
         {tab === "equipe" && role === "admin" && <TeamView team={team} setTeam={setTeam} demands={demands} clients={clients} onNotify={manualNotify} />}
       </div>
       {!myProfile.onboardedAt && (
