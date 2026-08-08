@@ -1,14 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// IMPORTANTE: troque "coletivo-fluxo" abaixo pelo nome EXATO do seu repositório no
-// GitHub, caso ele seja diferente. O GitHub Pages de projeto serve o site em
-// https://SEU-USUARIO.github.io/NOME-DO-REPO/  — e o Vite precisa saber esse
-// caminho para os arquivos (JS/CSS) carregarem certo.
-//
-// Se você for usar um domínio próprio (CNAME) ou um Pages de "usuário"
-// (SEU-USUARIO.github.io, sem subpasta), troque para base: "/".
+// O site roda no domínio próprio fluxoapp.online (ver public/CNAME), então o
+// Vite serve tudo a partir da raiz. Se um dia o domínio custom for removido e
+// o site voltar a ser servido em https://SEU-USUARIO.github.io/coletivo-fluxo/,
+// troque base de volta para "/coletivo-fluxo/".
 export default defineConfig({
   plugins: [react()],
-  base: "/coletivo-fluxo/",
+  base: "/",
 });
