@@ -9,7 +9,7 @@ import {
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
   Send, Megaphone, CalendarClock, Zap, LogOut, Rss,
 } from "lucide-react";
-import { ThreadsView, TagPicker, ThemeManager } from "./threads.jsx";
+import { ThreadsView, TagPicker, ThemeManager, resolveTone } from "./threads.jsx";
 import { Onboarding } from "./onboarding.jsx";
 import { ManualAlertsSection, resolveDestinoIds } from "./alerts.jsx";
 import { ZeusView } from "./zeus.jsx";
@@ -718,7 +718,7 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
 /* ---------------------------------------------------------------------- */
 /* COMMUNICATION RULES VIEW                                                */
 /* ---------------------------------------------------------------------- */
-function RuleForm({ team, themes, onManageTags, onSave, onClose }) {
+function RuleForm({ team, themes, themeGroups, onManageTags, onSave, onClose }) {
   const [name, setName] = useState("");
   const [trigger, setTrigger] = useState("dias_antes_prazo");
   const [daysBefore, setDaysBefore] = useState(2);
@@ -809,10 +809,10 @@ function RuleForm({ team, themes, onManageTags, onSave, onClose }) {
               <option value="comunicacao">Comunicação — só avisa</option>
             </select>
           </Field>
-          <Field label="Tags">
-            <TagPicker themes={themes} selectedIds={alertTagIds} onToggle={(id) => setAlertTagIds((ts) => (ts.includes(id) ? ts.filter((t) => t !== id) : [...ts, id]))} />
+          <Field label="Tema e assunto">
+            <TagPicker themes={themes} themeGroups={themeGroups} selectedIds={alertTagIds} onToggle={(id) => setAlertTagIds((ts) => (ts.includes(id) ? ts.filter((t) => t !== id) : [...ts, id]))} />
             <button onClick={onManageTags} style={{ background: "none", border: "none", color: C.brand, fontSize: 11.5, fontWeight: 600, cursor: "pointer", marginTop: 6, padding: 0 }}>
-              Gerenciar tags
+              Gerenciar temas
             </button>
           </Field>
         </>
@@ -835,7 +835,7 @@ function RuleForm({ team, themes, onManageTags, onSave, onClose }) {
   );
 }
 
-function RulesView({ team, rules, setRules, themes, setThemes }) {
+function RulesView({ team, rules, setRules, themes, setThemes, themeGroups, setThemeGroups }) {
   const [showForm, setShowForm] = useState(false);
   const [showThemeManager, setShowThemeManager] = useState(false);
   const toggle = (id) => {
@@ -878,12 +878,12 @@ function RulesView({ team, rules, setRules, themes, setThemes }) {
       </div>
       {showForm && (
         <RuleForm
-          team={team} themes={themes} onManageTags={() => setShowThemeManager(true)}
+          team={team} themes={themes} themeGroups={themeGroups} onManageTags={() => setShowThemeManager(true)}
           onClose={() => setShowForm(false)}
           onSave={(r) => { setRules((rs) => [...rs, r]); db.insertRule(r).catch((e) => console.error(e)); setShowForm(false); }}
         />
       )}
-      {showThemeManager && <ThemeManager themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
+      {showThemeManager && <ThemeManager themeGroups={themeGroups} setThemeGroups={setThemeGroups} themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
     </div>
   );
 }
@@ -1003,7 +1003,7 @@ function ClientForm({ team, onSave, onClose }) {
   );
 }
 
-function ClientsView({ clients, setClients, team }) {
+function ClientsView({ clients, setClients, team, themes, setThemes, themeGroups }) {
   const [showForm, setShowForm] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const removeClient = (id) => {
@@ -1061,7 +1061,20 @@ function ClientsView({ clients, setClients, team }) {
           );
         })}
       </div>
-      {showForm && <ClientForm team={team} onClose={() => setShowForm(false)} onSave={(c) => { setClients((cs) => [...cs, c]); db.insertClient(c).catch((e) => console.error(e)); setShowForm(false); }} />}
+      {showForm && (
+        <ClientForm
+          team={team}
+          onClose={() => setShowForm(false)}
+          onSave={async (c) => {
+            setClients((cs) => [...cs, c]);
+            setShowForm(false);
+            await db.insertClient(c).catch((e) => console.error(e));
+            const clienteGroupId = themeGroups.find((g) => g.id === "grp-cliente")?.id || "grp-cliente";
+            const theme = await db.syncClientTheme(c, clienteGroupId).catch((e) => { console.error(e); return null; });
+            if (theme) setThemes((ts) => [...ts, theme]);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1190,7 +1203,7 @@ function computeAlerts(clients, entries) {
   return alerts;
 }
 
-function AlertsView({ clients, entries, onCreateDemand, demands, manualAlerts, manualAlertTags, themes, setThemes, team, me, onCreateAlert }) {
+function AlertsView({ clients, entries, onCreateDemand, demands, manualAlerts, manualAlertTags, themes, setThemes, themeGroups, setThemeGroups, team, me, onCreateAlert }) {
   const alerts = useMemo(() => computeAlerts(clients, entries), [clients, entries]);
   const insights = useMemo(() => computeCrossInsights(clients, entries), [clients, entries]);
   const existingAlertDemandKeys = new Set(demands.filter((d) => d.originAlertKey).map((d) => d.originAlertKey));
@@ -1201,6 +1214,7 @@ function AlertsView({ clients, entries, onCreateDemand, demands, manualAlerts, m
       <ViewHeader title="Alertas" subtitle="Crie e acompanhe alertas manuais pra equipe, além das anomalias detectadas automaticamente" />
       <ManualAlertsSection
         alerts={manualAlerts} alertTags={manualAlertTags} themes={themes} setThemes={setThemes}
+        themeGroups={themeGroups} setThemeGroups={setThemeGroups}
         clients={clients} team={team} me={me} demands={demands} onCreateAlert={onCreateAlert}
       />
       <ViewHeader title="Detectados automaticamente" subtitle="Variações fora da rotina, comparadas ao período anterior e ao mesmo período do mês anterior" />
@@ -1428,7 +1442,7 @@ function DemandForm({ clients, team, onSave, onClose }) {
   );
 }
 
-function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [] }) {
+function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [], themeGroups = [] }) {
   const [showAction, setShowAction] = useState(false);
   const [actionType, setActionType] = useState("");
   const [actionDesc, setActionDesc] = useState("");
@@ -1517,7 +1531,7 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demandTypeLabel(demand.type)}</Badge>
         {demand.alertId && <Badge tone="brand">Alerta</Badge>}
-        {tags.map((t) => <Badge key={t.id} tone={t.tone}>{t.name}</Badge>)}
+        {tags.map((t) => <Badge key={t.id} tone={resolveTone(t, themeGroups)}>{t.name}</Badge>)}
         <span style={{ fontSize: 10.5, fontWeight: 700, color: PRIORITIES[demand.priority], border: `1px solid ${PRIORITIES[demand.priority]}`, borderRadius: 999, padding: "2px 7px", textTransform: "uppercase" }}>
           {demand.priority}
         </span>
@@ -1614,7 +1628,7 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
   );
 }
 
-function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules, themes = [], manualAlertTags = [], onCreateAlert }) {
+function DemandsView({ clients, demands, setDemands, team, notifications, setNotifications, currentUserId, role, rules, themes = [], themeGroups = [], manualAlertTags = [], onCreateAlert }) {
   const dispatchRuleAlerts = (alertsToCreate) => {
     alertsToCreate.forEach(({ tagIds, ...alertRow }) => onCreateAlert?.(alertRow, tagIds).catch((e) => console.error(e)));
   };
@@ -1780,6 +1794,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
                   key={d.id} demand={d} client={clients.find((c) => c.id === d.clientId)} team={team}
                   onUpdate={update} onDelete={remove} onNotify={role === "admin" ? () => notifyAboutDemand(d) : null} role={role}
                   tags={(tagsByAlert[d.alertId] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
+                  themeGroups={themeGroups}
                 />
               ))}
             </div>
@@ -1925,6 +1940,7 @@ export default function App() {
   const [communicationRules, setCommunicationRules] = useState([]);
   const [ruleFireLog, setRuleFireLog] = useState([]);
   const [themes, setThemes] = useState([]);
+  const [themeGroups, setThemeGroups] = useState([]);
   const [posts, setPosts] = useState([]);
   const [postRecipients, setPostRecipients] = useState([]);
   const [postTags, setPostTags] = useState([]);
@@ -1957,12 +1973,13 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData, postLikesData, dmConversationsData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData, postLikesData, dmConversationsData, themeGroupsData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
           db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
           db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(), db.fetchZeusConversations(),
           db.fetchPostReads(), db.fetchPostReplies(), db.fetchPostLikes(), db.fetchDmConversations(),
+          db.fetchThemeGroups(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
@@ -1972,6 +1989,7 @@ export default function App() {
         setZeusConversations(zeusConversationsData);
         setPostReads(postReadsData); setPostReplies(postRepliesData);
         setPostLikes(postLikesData); setDmConversations(dmConversationsData);
+        setThemeGroups(themeGroupsData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -1992,6 +2010,7 @@ export default function App() {
       ["fluxo_profiles", setTeam, db.fetchTeam],
       ["fluxo_communication_rules", setCommunicationRules, db.fetchRules],
       ["fluxo_themes", setThemes, db.fetchThemes],
+      ["fluxo_theme_groups", setThemeGroups, db.fetchThemeGroups],
       ["fluxo_posts", setPosts, db.fetchPosts],
       ["fluxo_post_recipients", setPostRecipients, db.fetchPostRecipients],
       ["fluxo_post_tags", setPostTags, db.fetchPostTags],
@@ -2217,11 +2236,11 @@ export default function App() {
             postReplies={postReplies} setPostReplies={setPostReplies}
             postLikes={postLikes} setPostLikes={setPostLikes}
             dmConversations={dmConversations} setDmConversations={setDmConversations}
-            themes={themes} setThemes={setThemes}
+            themes={themes} setThemes={setThemes} themeGroups={themeGroups} setThemeGroups={setThemeGroups}
             clients={clients} team={team} me={myProfile} role={role}
           />
         )}
-        {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} />}
+        {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} themes={themes} setThemes={setThemes} themeGroups={themeGroups} />}
         {tab === "dashboard" && role === "admin" && (
           <ZeusView conversations={zeusConversations} setConversations={setZeusConversations} clients={clients} me={myProfile} />
         )}
@@ -2229,13 +2248,14 @@ export default function App() {
           <AlertsView
             clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert}
             manualAlerts={manualAlerts} manualAlertTags={manualAlertTags} themes={themes} setThemes={setThemes}
+            themeGroups={themeGroups} setThemeGroups={setThemeGroups}
             team={team} me={myProfile} onCreateAlert={createManualAlert}
           />
         )}
-        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} themes={themes} manualAlertTags={manualAlertTags} onCreateAlert={createManualAlert} />}
+        {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} themes={themes} themeGroups={themeGroups} manualAlertTags={manualAlertTags} onCreateAlert={createManualAlert} />}
         {tab === "lembretes" && <RemindersView clients={clients} />}
         {tab === "relatorios" && role === "admin" && <ReportsView clients={clients} entries={entries} demands={demands} />}
-        {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} themes={themes} setThemes={setThemes} />}
+        {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} themes={themes} setThemes={setThemes} themeGroups={themeGroups} setThemeGroups={setThemeGroups} />}
         {tab === "equipe" && role === "admin" && <TeamView team={team} setTeam={setTeam} demands={demands} clients={clients} onNotify={manualNotify} />}
       </div>
       {!myProfile.onboardedAt && (

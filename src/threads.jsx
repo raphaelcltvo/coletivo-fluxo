@@ -10,6 +10,11 @@ export const TONE_LABELS = { muted: "Cinza", amber: "Âmbar", teal: "Verde-azula
 
 export const ROLE_LABEL = { atendimento: "Todo atendimento", admin: "Todo admin" };
 
+/** Cor de um assunto vem do tema (grupo) dele, não mais de campo próprio. Compartilhado com alerts.jsx. */
+export function resolveTone(theme, themeGroups) {
+  return themeGroups?.find((g) => g.id === theme?.groupId)?.tone || theme?.tone || "muted";
+}
+
 /** Resolve o campo `destino` (combinável) pra uma lista final de member ids ativos. Compartilhado com alerts.jsx. */
 export function resolveDestinoIds(destino, team) {
   const active = team.filter((t) => t.status === "ativo");
@@ -57,44 +62,95 @@ export const Tag = ({ children, tone = "muted" }) => (
 );
 
 /* ---------------------------------------------------------------------- */
-/* GERENCIAR TEMAS/TAGS (admin) — compartilhado entre Novidades e Alertas  */
+/* GERENCIAR TEMAS E ASSUNTOS (admin) — compartilhado entre Threads e Alertas */
 /* ---------------------------------------------------------------------- */
-export function ThemeManager({ themes, setThemes, onClose }) {
-  const [name, setName] = useState("");
-  const [tone, setTone] = useState("brand");
+export function ThemeManager({ themeGroups, setThemeGroups, themes, setThemes, onClose }) {
+  const [expandedGroup, setExpandedGroup] = useState(null);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupTone, setNewGroupTone] = useState("brand");
+  const [newSubjectName, setNewSubjectName] = useState("");
 
-  const add = () => {
-    if (!name.trim()) return;
-    const theme = { id: uid(), name: name.trim(), tone };
-    setThemes((ts) => [...ts, theme]);
-    db.insertTheme(theme).catch((e) => console.error(e));
-    setName("");
+  const addGroup = () => {
+    if (!newGroupName.trim()) return;
+    const group = { id: uid(), name: newGroupName.trim(), tone: newGroupTone };
+    setThemeGroups((gs) => [...gs, group]);
+    db.insertThemeGroup(group).catch((e) => console.error(e));
+    setNewGroupName("");
   };
 
-  const remove = (id) => {
+  const removeGroup = (id) => {
+    setThemeGroups((gs) => gs.filter((g) => g.id !== id));
+    db.deleteThemeGroup(id).catch((e) => console.error(e));
+  };
+
+  const addSubject = (groupId) => {
+    if (!newSubjectName.trim()) return;
+    const groupTone = themeGroups.find((g) => g.id === groupId)?.tone || "brand";
+    const theme = { id: uid(), name: newSubjectName.trim(), tone: groupTone, groupId, clientId: "" };
+    setThemes((ts) => [...ts, theme]);
+    db.insertTheme(theme).catch((e) => console.error(e));
+    setNewSubjectName("");
+  };
+
+  const removeSubject = (id) => {
     setThemes((ts) => ts.filter((t) => t.id !== id));
     db.deleteTheme(id).catch((e) => console.error(e));
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(8,9,13,.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 60, overflowY: "auto" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.borderLight}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: 24 }}>
-        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 16 }}>Gerenciar tags</div>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.borderLight}`, borderRadius: 14, width: "100%", maxWidth: 460, padding: 24 }}>
+        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, color: C.text, textTransform: "uppercase", marginBottom: 16 }}>Gerenciar temas</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <input style={{ ...inputStyle, flex: 1 }} placeholder="Nome da tag" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-          <select style={{ ...inputStyle, width: 110 }} value={tone} onChange={(e) => setTone(e.target.value)}>
+          <input style={{ ...inputStyle, flex: 1 }} placeholder="Novo tema" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} />
+          <select style={{ ...inputStyle, width: 110 }} value={newGroupTone} onChange={(e) => setNewGroupTone(e.target.value)}>
             {Object.keys(TONES).map((t) => <option key={t} value={t}>{TONE_LABELS[t]}</option>)}
           </select>
-          <Btn onClick={add}>+</Btn>
+          <Btn onClick={addGroup}>+</Btn>
         </div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {themes.map((t) => (
-            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Tag tone={t.tone}>{t.name}</Tag>
-              <button onClick={() => remove(t.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 12 }}>remover</button>
-            </div>
-          ))}
-          {themes.length === 0 && <div style={{ fontSize: 12, color: C.mutedDim }}>Nenhuma tag criada ainda.</div>}
+        <div style={{ display: "grid", gap: 6 }}>
+          {themeGroups.map((g) => {
+            const isCliente = g.id === "grp-cliente";
+            const isOpen = expandedGroup === g.id;
+            const subjects = themes.filter((t) => t.groupId === g.id);
+            return (
+              <div key={g.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                <div onClick={() => setExpandedGroup(isOpen ? null : g.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: 10, cursor: "pointer" }}>
+                  <Tag tone={g.tone}>{g.name}</Tag>
+                  <span style={{ fontSize: 11, color: C.mutedDim }}>{subjects.length} assunto{subjects.length !== 1 ? "s" : ""}</span>
+                  {!isCliente && (
+                    <button onClick={(e) => { e.stopPropagation(); removeGroup(g.id); }} style={{ marginLeft: "auto", background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 11.5 }}>
+                      remover tema
+                    </button>
+                  )}
+                </div>
+                {isOpen && (
+                  <div style={{ padding: "0 10px 10px", borderTop: `1px solid ${C.border}` }}>
+                    {isCliente ? (
+                      <div style={{ fontSize: 11.5, color: C.mutedDim, margin: "10px 0" }}>Sincronizado automaticamente com a aba Clientes.</div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8, margin: "10px 0" }}>
+                        <input style={{ ...inputStyle, flex: 1 }} placeholder="Novo assunto" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSubject(g.id)} />
+                        <Btn onClick={() => addSubject(g.id)}>+</Btn>
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gap: 5 }}>
+                      {subjects.map((t) => (
+                        <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12.5, color: C.text }}>{t.name}</span>
+                          {!isCliente && (
+                            <button onClick={() => removeSubject(t.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 11.5 }}>remover</button>
+                          )}
+                        </div>
+                      ))}
+                      {subjects.length === 0 && <div style={{ fontSize: 11.5, color: C.mutedDim }}>Nenhum assunto ainda.</div>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {themeGroups.length === 0 && <div style={{ fontSize: 12, color: C.mutedDim }}>Nenhum tema criado ainda.</div>}
         </div>
         <Btn variant="ghost" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={onClose}>Fechar</Btn>
       </div>
@@ -102,27 +158,37 @@ export function ThemeManager({ themes, setThemes, onClose }) {
   );
 }
 
-/** Seletor de tags multi-select (chips), compartilhado entre Novidades e Alertas. */
-export function TagPicker({ themes, selectedIds, onToggle }) {
+/** Seletor de assuntos multi-select (chips agrupados por tema), compartilhado entre Threads e Alertas. */
+export function TagPicker({ themes, themeGroups, selectedIds, onToggle }) {
+  const groupsWithSubjects = themeGroups.filter((g) => themes.some((t) => t.groupId === g.id));
+  if (groupsWithSubjects.length === 0) {
+    return <span style={{ fontSize: 11.5, color: C.mutedDim }}>Nenhum assunto cadastrado ainda.</span>;
+  }
   return (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {themes.map((t) => {
-        const active = selectedIds.includes(t.id);
-        return (
-          <label
-            key={t.id}
-            style={{
-              display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer",
-              background: active ? TONE_BG[t.tone] : C.surface2, color: active ? TONES[t.tone] : C.muted,
-              border: `1px solid ${active ? TONES[t.tone] : C.border}`, borderRadius: 999, padding: "4px 10px", fontWeight: active ? 700 : 500,
-            }}
-          >
-            <input type="checkbox" checked={active} onChange={() => onToggle(t.id)} style={{ margin: 0 }} />
-            {t.name}
-          </label>
-        );
-      })}
-      {themes.length === 0 && <span style={{ fontSize: 11.5, color: C.mutedDim }}>Nenhuma tag criada ainda.</span>}
+    <div style={{ display: "grid", gap: 8 }}>
+      {groupsWithSubjects.map((g) => (
+        <div key={g.id}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: TONES[g.tone], marginBottom: 4 }}>{g.name}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {themes.filter((t) => t.groupId === g.id).map((t) => {
+              const active = selectedIds.includes(t.id);
+              return (
+                <label
+                  key={t.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer",
+                    background: active ? TONE_BG[g.tone] : C.surface2, color: active ? TONES[g.tone] : C.muted,
+                    border: `1px solid ${active ? TONES[g.tone] : C.border}`, borderRadius: 999, padding: "4px 10px", fontWeight: active ? 700 : 500,
+                  }}
+                >
+                  <input type="checkbox" checked={active} onChange={() => onToggle(t.id)} style={{ margin: 0 }} />
+                  {t.name}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -229,7 +295,7 @@ export function DestinoChips({ everyone, setEveryone, roles, setRoles, memberIds
 /* ---------------------------------------------------------------------- */
 /* COMPOSER                                                                 */
 /* ---------------------------------------------------------------------- */
-function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
+function Composer({ themes, themeGroups, clients, team, me, role, onPost, onManageThemes }) {
   const [message, setMessage] = useState("");
   const [tagIds, setTagIds] = useState([]);
   const [clientId, setClientId] = useState("");
@@ -272,7 +338,7 @@ function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
       {expanded && (
         <div style={{ marginTop: 12, paddingLeft: 42 }}>
           <div style={{ marginBottom: 10 }}>
-            <TagPicker themes={themes} selectedIds={tagIds} onToggle={toggleTag} />
+            <TagPicker themes={themes} themeGroups={themeGroups} selectedIds={tagIds} onToggle={toggleTag} />
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
             <select style={{ ...inputStyle, width: "auto", flex: "1 1 140px" }} value={clientId} onChange={(e) => setClientId(e.target.value)}>
@@ -281,12 +347,12 @@ function Composer({ themes, clients, team, me, role, onPost, onManageThemes }) {
             </select>
             {role === "admin" && (
               <button onClick={onManageThemes} style={{ background: "none", border: "none", color: C.brand, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
-                Gerenciar tags
+                Gerenciar temas
               </button>
             )}
           </div>
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: C.mutedDim, marginBottom: 6, fontWeight: 600 }}>Para</div>
+            <div style={{ fontSize: 11, color: C.mutedDim, marginBottom: 6, fontWeight: 600 }}>{everyone ? "Público" : "Privado — quem participa"}</div>
             <DestinoChips everyone={everyone} setEveryone={setEveryone} roles={roles} setRoles={setRoles} memberIds={memberIds} setMemberIds={setMemberIds} team={team} excludeId={me.id} />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -422,7 +488,7 @@ function LikeButton({ liked, count, onClick }) {
 /* ---------------------------------------------------------------------- */
 /* POST CARD                                                               */
 /* ---------------------------------------------------------------------- */
-function PostCard({ post, author, tags, client, recipients, team, me, role, onDelete, onFilterTag, reads, replies, onMarkRead, onReply, liked, likeCount, onToggleLike, unread }) {
+function PostCard({ post, author, tags, themeGroups, client, recipients, team, me, role, onDelete, onFilterTag, reads, replies, onMarkRead, onReply, liked, likeCount, onToggleLike, unread }) {
   const canDelete = post.authorId === me.id || role === "admin";
   return (
     <Ticket style={{ padding: 16, marginBottom: 10, animation: "fluxo-fade-in .25s ease", position: "relative" }}>
@@ -443,7 +509,7 @@ function PostCard({ post, author, tags, client, recipients, team, me, role, onDe
           </div>
           <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.5, marginTop: 6, whiteSpace: "pre-wrap" }}>{renderMessage(post.message, team)}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-            {tags.map((t) => <ClickableTag key={t.id} tone={t.tone} onClick={() => onFilterTag(t.id)}>{t.name}</ClickableTag>)}
+            {tags.map((t) => <ClickableTag key={t.id} tone={resolveTone(t, themeGroups)} onClick={() => onFilterTag(t.id)}>{t.name}</ClickableTag>)}
             {client && <Tag tone="muted">{client.name}</Tag>}
             {post.audience === "pessoas" && (
               <Tag tone="brand">Para: {recipients.map((id) => team.find((t) => t.id === id)?.name).filter(Boolean).join(", ") || "—"}</Tag>
@@ -586,7 +652,7 @@ export function ThreadsView({
   posts, setPosts, postRecipients, setPostRecipients, postTags, setPostTags,
   postReads, setPostReads, postReplies, setPostReplies, postLikes, setPostLikes,
   dmConversations, setDmConversations,
-  themes, setThemes, clients, team, me, role,
+  themes, setThemes, themeGroups, setThemeGroups, clients, team, me, role,
 }) {
   const [filterTag, setFilterTag] = useState("");
   const [filterClient, setFilterClient] = useState("");
@@ -756,6 +822,7 @@ export function ThreadsView({
       post={post}
       author={team.find((t) => t.id === post.authorId)}
       tags={(tagsByPost[post.id] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
+      themeGroups={themeGroups}
       client={clients.find((c) => c.id === post.clientId)}
       recipients={recipientsByPost[post.id] || []}
       team={team}
@@ -841,16 +908,21 @@ export function ThreadsView({
             </div>
 
             {themes.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-                {themes.map((t) => (
-                  <ClickableTag key={t.id} tone={t.tone} onClick={() => { setFilterTag(filterTag === t.id ? "" : t.id); setViewMode("recentes"); }}>
-                    {filterTag === t.id ? "✓ " : ""}{t.name}
-                  </ClickableTag>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+                {themeGroups.filter((g) => themes.some((t) => t.groupId === g.id)).map((g) => (
+                  <div key={g.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: TONES[g.tone], textTransform: "uppercase" }}>{g.name}:</span>
+                    {themes.filter((t) => t.groupId === g.id).map((t) => (
+                      <ClickableTag key={t.id} tone={g.tone} onClick={() => { setFilterTag(filterTag === t.id ? "" : t.id); setViewMode("recentes"); }}>
+                        {filterTag === t.id ? "✓ " : ""}{t.name}
+                      </ClickableTag>
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
 
-            <Composer themes={themes} clients={clients} team={team} me={me} role={role} onPost={publish} onManageThemes={() => setShowThemeManager(true)} />
+            <Composer themes={themes} themeGroups={themeGroups} clients={clients} team={team} me={me} role={role} onPost={publish} onManageThemes={() => setShowThemeManager(true)} />
 
             {visiblePosts.length === 0 && (
               <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "40px 20px", textAlign: "center", color: C.mutedDim, fontSize: 13 }}>
@@ -868,7 +940,7 @@ export function ThreadsView({
               </div>
             ))}
 
-            {showThemeManager && <ThemeManager themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
+            {showThemeManager && <ThemeManager themeGroups={themeGroups} setThemeGroups={setThemeGroups} themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
           </>
         )}
       </div>

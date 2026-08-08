@@ -335,10 +335,34 @@ export async function insertFireKeys(keys) {
   check(error);
 }
 
-/* ----------------------------------- themes ----------------------------------- */
+/* ----------------------------------- temas e assuntos ----------------------------------- */
 
-const themeFromRow = (r) => ({ id: r.id, name: r.name, tone: r.tone });
-const themeToRow = (t) => ({ id: t.id, name: t.name, tone: t.tone });
+const themeGroupFromRow = (r) => ({ id: r.id, name: r.name, tone: r.tone });
+const themeGroupToRow = (g) => ({ id: g.id, name: g.name, tone: g.tone });
+
+export async function fetchThemeGroups() {
+  const { data, error } = await supabase.from("fluxo_theme_groups").select("*").order("name");
+  check(error);
+  return data.map(themeGroupFromRow);
+}
+
+export async function insertThemeGroup(group) {
+  const { error } = await supabase.from("fluxo_theme_groups").insert(themeGroupToRow(group));
+  check(error);
+}
+
+export async function updateThemeGroup(group) {
+  const { error } = await supabase.from("fluxo_theme_groups").update(themeGroupToRow(group)).eq("id", group.id);
+  check(error);
+}
+
+export async function deleteThemeGroup(id) {
+  const { error } = await supabase.from("fluxo_theme_groups").delete().eq("id", id);
+  check(error);
+}
+
+const themeFromRow = (r) => ({ id: r.id, name: r.name, tone: r.tone, groupId: r.group_id || "", clientId: r.client_id || "" });
+const themeToRow = (t) => ({ id: t.id, name: t.name, tone: t.tone, group_id: t.groupId || null, client_id: t.clientId || null });
 
 export async function fetchThemes() {
   const { data, error } = await supabase.from("fluxo_themes").select("*").order("name");
@@ -354,6 +378,14 @@ export async function insertTheme(theme) {
 export async function deleteTheme(id) {
   const { error } = await supabase.from("fluxo_themes").delete().eq("id", id);
   check(error);
+}
+
+/** Cria/atualiza o assunto sincronizado do tema Cliente pra um cliente recém-cadastrado. */
+export async function syncClientTheme(client, clienteGroupId) {
+  const theme = { id: Math.random().toString(36).slice(2, 10), name: client.name, tone: "brand", groupId: clienteGroupId, clientId: client.id };
+  const { error } = await supabase.from("fluxo_themes").insert(themeToRow(theme));
+  check(error);
+  return theme;
 }
 
 /* ----------------------------------- posts (Novidades) ----------------------------------- */

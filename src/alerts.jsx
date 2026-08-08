@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import * as db from "./data.js";
 import { C, Ticket, Btn, Field, inputStyle } from "./ui.jsx";
-import { Avatar, Tag, TagPicker, ThemeManager, timeAgo, ROLE_LABEL, resolveDestinoIds, DestinoChips } from "./threads.jsx";
+import { Avatar, Tag, TagPicker, ThemeManager, timeAgo, ROLE_LABEL, resolveDestinoIds, DestinoChips, resolveTone } from "./threads.jsx";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -25,7 +25,7 @@ const STATUS_TONE = { agendado: "amber", enviado: "teal" };
 /* ---------------------------------------------------------------------- */
 /* FORMULÁRIO DE CRIAÇÃO                                                   */
 /* ---------------------------------------------------------------------- */
-function AlertForm({ themes, clients, team, me, onCreate, onManageTags }) {
+function AlertForm({ themes, themeGroups, clients, team, me, onCreate, onManageTags }) {
   const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -101,10 +101,10 @@ function AlertForm({ themes, clients, team, me, onCreate, onManageTags }) {
         </div>
       </div>
 
-      <Field label="Tag">
-        <TagPicker themes={themes} selectedIds={tagIds} onToggle={(id) => toggle(setTagIds, tagIds, id)} />
+      <Field label="Tema e assunto">
+        <TagPicker themes={themes} themeGroups={themeGroups} selectedIds={tagIds} onToggle={(id) => toggle(setTagIds, tagIds, id)} />
         <button onClick={onManageTags} style={{ background: "none", border: "none", color: C.brand, fontSize: 11.5, fontWeight: 600, cursor: "pointer", marginTop: 6, padding: 0 }}>
-          Gerenciar tags
+          Gerenciar temas
         </button>
       </Field>
 
@@ -166,7 +166,7 @@ function StatTile({ label, value, tone = "muted" }) {
 /* ---------------------------------------------------------------------- */
 /* LISTA DE ALERTAS CRIADOS                                                */
 /* ---------------------------------------------------------------------- */
-function AlertRow({ alert, tags, team, creator, pending, done }) {
+function AlertRow({ alert, tags, themeGroups, team, creator, pending, done }) {
   return (
     <Ticket style={{ padding: 14, marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -176,7 +176,7 @@ function AlertRow({ alert, tags, team, creator, pending, done }) {
             <span style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{alert.title}</span>
             <Tag tone={STATUS_TONE[alert.status]}>{STATUS_LABEL[alert.status]}</Tag>
             <Tag tone={alert.alertType === "relatorio" ? "brand" : "muted"}>{alert.alertType === "relatorio" ? "Relatório" : "Comunicação"}</Tag>
-            {tags.map((t) => <Tag key={t.id} tone={t.tone}>{t.name}</Tag>)}
+            {tags.map((t) => <Tag key={t.id} tone={resolveTone(t, themeGroups)}>{t.name}</Tag>)}
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
             Para: {destinoSummary(alert.destino, team)} · Criado por {creator?.name || "—"} · {timeAgo(alert.createdAt)}
@@ -196,7 +196,7 @@ function AlertRow({ alert, tags, team, creator, pending, done }) {
 /* ---------------------------------------------------------------------- */
 /* SEÇÃO COMPLETA — usada dentro de AlertsView (App.jsx)                   */
 /* ---------------------------------------------------------------------- */
-export function ManualAlertsSection({ alerts, alertTags, themes, setThemes, clients, team, me, demands, onCreateAlert }) {
+export function ManualAlertsSection({ alerts, alertTags, themes, setThemes, themeGroups, setThemeGroups, clients, team, me, demands, onCreateAlert }) {
   const [showThemeManager, setShowThemeManager] = useState(false);
 
   const tagsByAlert = useMemo(() => {
@@ -240,7 +240,7 @@ export function ManualAlertsSection({ alerts, alertTags, themes, setThemes, clie
         <StatTile label="Concluídos" value={stats.concluidos} tone="teal" />
       </div>
 
-      <AlertForm themes={themes} clients={clients} team={team} me={me} onCreate={onCreateAlert} onManageTags={() => setShowThemeManager(true)} />
+      <AlertForm themes={themes} themeGroups={themeGroups} clients={clients} team={team} me={me} onCreate={onCreateAlert} onManageTags={() => setShowThemeManager(true)} />
 
       {alerts.length === 0 && (
         <div style={{ border: `1px dashed ${C.border}`, borderRadius: 12, padding: "24px 20px", textAlign: "center", color: C.mutedDim, fontSize: 13 }}>
@@ -254,6 +254,7 @@ export function ManualAlertsSection({ alerts, alertTags, themes, setThemes, clie
             key={alert.id}
             alert={alert}
             tags={(tagsByAlert[alert.id] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
+            themeGroups={themeGroups}
             team={team}
             creator={team.find((t) => t.id === alert.createdBy)}
             pending={linked.filter((d) => d.status !== "concluida").length}
@@ -262,7 +263,7 @@ export function ManualAlertsSection({ alerts, alertTags, themes, setThemes, clie
         );
       })}
 
-      {showThemeManager && <ThemeManager themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
+      {showThemeManager && <ThemeManager themeGroups={themeGroups} setThemeGroups={setThemeGroups} themes={themes} setThemes={setThemes} onClose={() => setShowThemeManager(false)} />}
     </div>
   );
 }
