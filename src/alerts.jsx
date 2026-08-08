@@ -1,22 +1,11 @@
 import React, { useState, useMemo } from "react";
 import * as db from "./data.js";
 import { C, Ticket, Btn, Field, inputStyle } from "./ui.jsx";
-import { Avatar, Tag, TagPicker, ThemeManager, timeAgo } from "./novidades.jsx";
+import { Avatar, Tag, TagPicker, ThemeManager, timeAgo, ROLE_LABEL, resolveDestinoIds, DestinoChips } from "./novidades.jsx";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-const ROLE_LABEL = { atendimento: "Todo atendimento", admin: "Todo admin" };
-
-/** Resolve o campo `destino` (combinável) pra uma lista final de member ids ativos. */
-export function resolveDestinoIds(destino, team) {
-  const active = team.filter((t) => t.status === "ativo");
-  if (destino?.everyone) return active.map((t) => t.id);
-  const set = new Set(destino?.memberIds || []);
-  (destino?.roles || []).forEach((role) => {
-    active.filter((t) => t.role === role).forEach((t) => set.add(t.id));
-  });
-  return [...set];
-}
+export { resolveDestinoIds };
 
 function destinoSummary(destino, team) {
   if (destino?.everyone) return "Todos";
@@ -90,23 +79,7 @@ function AlertForm({ themes, clients, team, me, onCreate, onManageTags }) {
       </div>
 
       <Field label="Destino" hint="Combine quantos quiser: grupos de função, todos, e/ou pessoas específicas.">
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", background: everyone ? C.brandDim : C.surface2, color: everyone ? C.brand : C.muted, border: `1px solid ${everyone ? C.brand : C.border}`, borderRadius: 999, padding: "4px 10px", fontWeight: 600 }}>
-            <input type="checkbox" checked={everyone} onChange={() => setEveryone((v) => !v)} style={{ margin: 0 }} /> Todos
-          </label>
-          {["atendimento", "admin"].map((r) => (
-            <label key={r} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", background: roles.includes(r) ? C.brandDim : C.surface2, color: roles.includes(r) ? C.brand : C.muted, border: `1px solid ${roles.includes(r) ? C.brand : C.border}`, borderRadius: 999, padding: "4px 10px", fontWeight: 600 }}>
-              <input type="checkbox" checked={roles.includes(r)} onChange={() => toggle(setRoles, roles, r)} style={{ margin: 0 }} /> {ROLE_LABEL[r]}
-            </label>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {team.filter((t) => t.status === "ativo").map((t) => (
-            <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer", background: memberIds.includes(t.id) ? C.surface3 : C.surface2, color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "4px 10px" }}>
-              <input type="checkbox" checked={memberIds.includes(t.id)} onChange={() => toggle(setMemberIds, memberIds, t.id)} style={{ margin: 0 }} /> {t.name}
-            </label>
-          ))}
-        </div>
+        <DestinoChips everyone={everyone} setEveryone={setEveryone} roles={roles} setRoles={setRoles} memberIds={memberIds} setMemberIds={setMemberIds} team={team} />
       </Field>
 
       <Field label="Título">
