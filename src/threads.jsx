@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
+import { Rss } from "lucide-react";
 import * as db from "./data.js";
 import { C, Ticket, Btn, Field, inputStyle } from "./ui.jsx";
 
@@ -72,8 +73,9 @@ export function ThemeManager({ themeGroups, setThemeGroups, themes, setThemes, o
 
   const addGroup = () => {
     if (!newGroupName.trim()) return;
-    const group = { id: uid(), name: newGroupName.trim(), tone: newGroupTone };
-    setThemeGroups((gs) => [...gs, group]);
+    const nextOrder = themeGroups.reduce((max, g) => Math.max(max, g.sortOrder || 0), 0) + 1;
+    const group = { id: uid(), name: newGroupName.trim(), tone: newGroupTone, sortOrder: nextOrder };
+    setThemeGroups((gs) => [...gs, group].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
     db.insertThemeGroup(group).catch((e) => console.error(e));
     setNewGroupName("");
   };
@@ -558,19 +560,24 @@ function NewDmPicker({ team, me, onPick, onClose }) {
 function DmSidebar({ conversations, team, me, activeId, onSelect, onNew }) {
   const [showPicker, setShowPicker] = useState(false);
   const otherOf = (c) => (c.memberAId === me.id ? c.memberBId : c.memberAId);
+  const navItemStyle = (active) => ({
+    textAlign: "left", background: active ? C.surface3 : "transparent", border: "none", borderRadius: 8,
+    padding: "9px 10px", cursor: "pointer", color: active ? C.text : C.muted, fontSize: 13.5,
+    fontWeight: active ? 600 : 500, fontFamily: "Inter, sans-serif", width: "100%",
+  });
 
   return (
     <div style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.mutedDim }}>Mensagens</div>
+      <button onClick={() => onSelect(null)} style={{ ...navItemStyle(activeId === null), display: "flex", alignItems: "center", gap: 10 }}>
+        <Rss size={16} style={{ flexShrink: 0 }} /> Feed
+      </button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "14px 0 4px", padding: "0 10px" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.mutedDim }}>Privado</div>
         <button onClick={() => setShowPicker(true)} title="Nova conversa" style={{ background: "none", border: "none", color: C.brand, fontSize: 17, fontWeight: 700, cursor: "pointer", lineHeight: 1 }}>+</button>
       </div>
-      <button
-        onClick={() => onSelect(null)}
-        style={{ textAlign: "left", background: activeId === null ? C.surface3 : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: C.text, fontSize: 12.5, fontWeight: activeId === null ? 700 : 500 }}
-      >
-        📣 Feed público
-      </button>
+      {conversations.length === 0 && (
+        <div style={{ fontSize: 11.5, color: C.mutedDim, padding: "0 10px" }}>Nenhuma conversa ainda.</div>
+      )}
       {conversations.map((c) => {
         const otherId = otherOf(c);
         const other = team.find((t) => t.id === otherId);
@@ -579,7 +586,7 @@ function DmSidebar({ conversations, team, me, activeId, onSelect, onNew }) {
           <button
             key={c.id}
             onClick={() => onSelect(c.id)}
-            style={{ textAlign: "left", background: activeId === c.id ? C.surface3 : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+            style={{ textAlign: "left", background: activeId === c.id ? C.surface3 : "transparent", border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, sans-serif" }}
           >
             <Avatar name={other?.name} size={24} />
             <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.text, fontWeight: unread ? 700 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -656,8 +663,10 @@ export function ThreadsView({
 }) {
   const [filterTag, setFilterTag] = useState("");
   const [filterClient, setFilterClient] = useState("");
-  const [filterMode, setFilterMode] = useState("tudo"); // tudo | meu | postei
-  const [viewMode, setViewMode] = useState("recentes"); // recentes | data | tag
+  const [filterDate, setFilterDate] = useState("");
+  const [filterMode, setFilterMode] = useState(""); // "" | marcou | postei | outro
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState("recentes"); // recentes | assunto | atualizacoes
   const [showThemeManager, setShowThemeManager] = useState(false);
   const [activeDmId, setActiveDmId] = useState(null);
   const [dmMessagesByConv, setDmMessagesByConv] = useState({});
@@ -712,17 +721,35 @@ export function ThreadsView({
     [posts, readsByPost, me.id]
   );
 
+  const mentionsMe = (p) => me.name && new RegExp(`@${me.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(p.message);
+
+  const matchesSearch = (p, q) => {
+    const ql = q.toLowerCase();
+    if (p.message.toLowerCase().includes(ql)) return true;
+    const author = team.find((t) => t.id === p.authorId);
+    if (author?.name?.toLowerCase().includes(ql)) return true;
+    const recipientNames = (recipientsByPost[p.id] || []).map((id) => team.find((t) => t.id === id)?.name || "").join(" ");
+    if (recipientNames.toLowerCase().includes(ql)) return true;
+    const tagNames = (tagsByPost[p.id] || []).map((tid) => themes.find((t) => t.id === tid)?.name || "").join(" ");
+    if (tagNames.toLowerCase().includes(ql)) return true;
+    const client = clients.find((c) => c.id === p.clientId);
+    if (client?.name?.toLowerCase().includes(ql)) return true;
+    return false;
+  };
+
   const visiblePosts = useMemo(() => {
     return posts
       .filter((p) => !filterTag || (tagsByPost[p.id] || []).includes(filterTag))
       .filter((p) => !filterClient || p.clientId === filterClient)
+      .filter((p) => !filterDate || new Date(p.createdAt).toLocaleDateString("en-CA") === filterDate)
       .filter((p) => {
         if (filterMode === "postei") return p.authorId === me.id;
-        if (filterMode === "meu") return p.authorId === me.id || (recipientsByPost[p.id] || []).includes(me.id);
+        if (filterMode === "marcou") return mentionsMe(p);
+        if (filterMode === "outro") return !searchQuery.trim() || matchesSearch(p, searchQuery.trim());
         return true;
       })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [posts, filterTag, filterClient, filterMode, recipientsByPost, tagsByPost, me.id]);
+  }, [posts, filterTag, filterClient, filterDate, filterMode, searchQuery, recipientsByPost, tagsByPost, me.id, me.name, team, themes, clients]);
 
   const publish = async (post, recipientIds, tagIds) => {
     setPosts((ps) => [post, ...ps]);
@@ -794,27 +821,38 @@ export function ThreadsView({
   const activeConv = dmConversations.find((c) => c.id === activeDmId);
 
   const grouped = useMemo(() => {
-    if (viewMode === "data") {
-      const map = {};
-      visiblePosts.forEach((p) => {
-        const key = new Date(p.createdAt).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
-        if (!map[key]) map[key] = [];
-        map[key].push(p);
-      });
-      return Object.entries(map);
-    }
-    if (viewMode === "tag") {
+    if (viewMode === "assunto") {
       const map = {};
       visiblePosts.forEach((p) => {
         const ids = tagsByPost[p.id] || [];
-        const key = ids.length ? ids[0] : "__sem_tag";
+        const key = ids.length ? ids[0] : "__sem_assunto";
         if (!map[key]) map[key] = [];
         map[key].push(p);
       });
-      return Object.entries(map).map(([key, list]) => [key === "__sem_tag" ? "Sem tag" : themes.find((t) => t.id === key)?.name || "Tag removida", list]);
+      const order = [];
+      themeGroups.forEach((g) => {
+        themes.filter((t) => t.groupId === g.id).forEach((t) => {
+          if (map[t.id]) order.push([`${g.name} · ${t.name}`, map[t.id]]);
+        });
+      });
+      if (map.__sem_assunto) order.push(["Sem assunto", map.__sem_assunto]);
+      return order;
+    }
+    if (viewMode === "atualizacoes") {
+      const list = visiblePosts.filter((p) => {
+        const iInvolved = p.authorId === me.id || p.audience === "todos" || (recipientsByPost[p.id] || []).includes(me.id);
+        if (!iInvolved) return false;
+        const iRead = (readsByPost[p.id] || []).some((r) => r.memberId === me.id);
+        const iReplied = (repliesByPost[p.id] || []).some((r) => r.authorId === me.id);
+        if (iRead || iReplied) return false;
+        const othersReplied = (repliesByPost[p.id] || []).some((r) => r.authorId !== me.id);
+        const othersLiked = (likesByPost[p.id] || []).some((id) => id !== me.id);
+        return othersReplied || othersLiked;
+      });
+      return [["", list]];
     }
     return [["", visiblePosts]];
-  }, [viewMode, visiblePosts, tagsByPost, themes]);
+  }, [viewMode, visiblePosts, tagsByPost, themes, themeGroups, readsByPost, repliesByPost, likesByPost, recipientsByPost, me.id]);
 
   const renderPost = (post) => (
     <PostCard
@@ -877,8 +915,8 @@ export function ThreadsView({
               </select>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-              {[["recentes", "Mais Recentes"], ["data", "Por Data"], ["tag", "Por Tag"]].map(([id, label]) => (
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {[["recentes", "Mais Recentes"], ["assunto", "Por Assunto"], ["atualizacoes", "Atualizações"]].map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => setViewMode(id)}
@@ -892,10 +930,22 @@ export function ThreadsView({
                 </button>
               ))}
               <div style={{ width: 1, background: C.border, margin: "4px 2px" }} />
-              {[["tudo", "Tudo"], ["meu", "Só pra mim"], ["postei", "Que eu postei"]].map(([id, label]) => (
+              <input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                style={{ ...inputStyle, width: "auto", padding: "5px 10px", fontSize: 12 }}
+              />
+              {filterDate && (
+                <button onClick={() => setFilterDate("")} title="Limpar data" style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer", fontSize: 13 }}>×</button>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+              {[["marcou", "Me marcou"], ["postei", "Eu postei"], ["outro", "Outro"]].map(([id, label]) => (
                 <button
                   key={id}
-                  onClick={() => setFilterMode(id)}
+                  onClick={() => setFilterMode((m) => (m === id ? "" : id))}
                   style={{
                     background: filterMode === id ? C.surface3 : "transparent", color: filterMode === id ? C.text : C.mutedDim,
                     border: `1px solid ${C.border}`, borderRadius: 999, padding: "6px 14px",
@@ -905,6 +955,15 @@ export function ThreadsView({
                   {label}
                 </button>
               ))}
+              {filterMode === "outro" && (
+                <input
+                  autoFocus
+                  placeholder="Buscar por assunto, pessoa ou texto..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ ...inputStyle, width: 260, padding: "5px 10px", fontSize: 12 }}
+                />
+              )}
             </div>
 
             {themes.length > 0 && (

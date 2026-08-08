@@ -337,11 +337,11 @@ export async function insertFireKeys(keys) {
 
 /* ----------------------------------- temas e assuntos ----------------------------------- */
 
-const themeGroupFromRow = (r) => ({ id: r.id, name: r.name, tone: r.tone });
-const themeGroupToRow = (g) => ({ id: g.id, name: g.name, tone: g.tone });
+const themeGroupFromRow = (r) => ({ id: r.id, name: r.name, tone: r.tone, sortOrder: r.sort_order ?? 0 });
+const themeGroupToRow = (g) => ({ id: g.id, name: g.name, tone: g.tone, sort_order: g.sortOrder ?? 0 });
 
 export async function fetchThemeGroups() {
-  const { data, error } = await supabase.from("fluxo_theme_groups").select("*").order("name");
+  const { data, error } = await supabase.from("fluxo_theme_groups").select("*").order("sort_order").order("name");
   check(error);
   return data.map(themeGroupFromRow);
 }
