@@ -4,11 +4,16 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import * as XLSX from "npm:xlsx@0.18.5";
 import type { ToolCtx } from "./general.ts";
+import { SKILL_MD, PROMPT_MESTRE_MD, TAPI_TEMPLATE_HTML } from "../activities/dashboard-ftw/skillContent.ts";
 
-const skillDir = new URL("../activities/dashboard-ftw/", import.meta.url);
-
-export async function readSkillFile(name: string): Promise<string> {
-  return await Deno.readTextFile(new URL(name, skillDir));
+// Conteúdo embutido como constantes estáticas (não lido do disco em runtime) —
+// garante que a Edge Function inclua esses arquivos no bundle, já que o
+// deploy do Supabase só segue imports estáticos, não Deno.readTextFile.
+export function readSkillFile(name: string): string {
+  if (name === "SKILL.md") return SKILL_MD;
+  if (name === "prompt-mestre.md") return PROMPT_MESTRE_MD;
+  if (name === "tapi-template.html") return TAPI_TEMPLATE_HTML;
+  throw new Error(`Arquivo de skill desconhecido: ${name}`);
 }
 
 export const dashboardFtwToolDefs = [

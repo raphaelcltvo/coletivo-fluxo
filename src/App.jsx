@@ -1928,6 +1928,8 @@ export default function App() {
   const [posts, setPosts] = useState([]);
   const [postRecipients, setPostRecipients] = useState([]);
   const [postTags, setPostTags] = useState([]);
+  const [postReads, setPostReads] = useState([]);
+  const [postReplies, setPostReplies] = useState([]);
   const [manualAlerts, setManualAlerts] = useState([]);
   const [manualAlertTags, setManualAlertTags] = useState([]);
   const [zeusConversations, setZeusConversations] = useState([]);
@@ -1953,11 +1955,12 @@ export default function App() {
         if (cancelled) return;
         setMyProfile(profile);
         if (!profile || profile.status !== "ativo") { setLoaded(true); return; }
-        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData] = await Promise.all([
+        const [clientsData, entriesData, demandsData, teamData, notifsData, rulesData, fireLogData, themesData, postsData, postRecipientsData, postTagsData, manualAlertsData, manualAlertTagsData, zeusConversationsData, postReadsData, postRepliesData] = await Promise.all([
           db.fetchClients(), db.fetchEntries(), db.fetchDemands(), db.fetchTeam(),
           db.fetchNotifications(), db.fetchRules(), db.fetchRuleFireLog(),
           db.fetchThemes(), db.fetchPosts(), db.fetchPostRecipients(),
           db.fetchPostTags(), db.fetchAlerts(), db.fetchAlertTags(), db.fetchZeusConversations(),
+          db.fetchPostReads(), db.fetchPostReplies(),
         ]);
         if (cancelled) return;
         setClients(clientsData); setEntries(entriesData); setDemands(demandsData);
@@ -1965,6 +1968,7 @@ export default function App() {
         setRuleFireLog(fireLogData); setThemes(themesData); setPosts(postsData); setPostRecipients(postRecipientsData);
         setPostTags(postTagsData); setManualAlerts(manualAlertsData); setManualAlertTags(manualAlertTagsData);
         setZeusConversations(zeusConversationsData);
+        setPostReads(postReadsData); setPostReplies(postRepliesData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -1988,6 +1992,8 @@ export default function App() {
       ["fluxo_posts", setPosts, db.fetchPosts],
       ["fluxo_post_recipients", setPostRecipients, db.fetchPostRecipients],
       ["fluxo_post_tags", setPostTags, db.fetchPostTags],
+      ["fluxo_post_reads", setPostReads, db.fetchPostReads],
+      ["fluxo_post_replies", setPostReplies, db.fetchPostReplies],
       ["fluxo_alerts", setManualAlerts, db.fetchAlerts],
       ["fluxo_alert_tags", setManualAlertTags, db.fetchAlertTags],
       ["fluxo_zeus_conversations", setZeusConversations, db.fetchZeusConversations],
@@ -2202,6 +2208,8 @@ export default function App() {
             posts={posts} setPosts={setPosts}
             postRecipients={postRecipients} setPostRecipients={setPostRecipients}
             postTags={postTags} setPostTags={setPostTags}
+            postReads={postReads} setPostReads={setPostReads}
+            postReplies={postReplies} setPostReplies={setPostReplies}
             themes={themes} setThemes={setThemes}
             clients={clients} team={team} me={myProfile} role={role}
           />

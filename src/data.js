@@ -415,6 +415,38 @@ export async function fetchPostTags() {
   return data.map((r) => ({ postId: r.post_id, themeId: r.theme_id }));
 }
 
+export async function fetchPostReads() {
+  const { data, error } = await supabase.from("fluxo_post_reads").select("*");
+  check(error);
+  return data.map((r) => ({ postId: r.post_id, memberId: r.member_id, readAt: new Date(r.read_at).getTime() }));
+}
+
+export async function markPostRead(postId, memberId) {
+  const { error } = await supabase.from("fluxo_post_reads").upsert({ post_id: postId, member_id: memberId }, { onConflict: "post_id,member_id" });
+  check(error);
+}
+
+const postReplyFromRow = (r) => ({
+  id: r.id,
+  postId: r.post_id,
+  authorId: r.author_id,
+  message: r.message,
+  createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+});
+
+export async function fetchPostReplies() {
+  const { data, error } = await supabase.from("fluxo_post_replies").select("*").order("created_at");
+  check(error);
+  return data.map(postReplyFromRow);
+}
+
+export async function insertPostReply(reply) {
+  const { error } = await supabase.from("fluxo_post_replies").insert({
+    id: reply.id, post_id: reply.postId, author_id: reply.authorId, message: reply.message,
+  });
+  check(error);
+}
+
 /* ----------------------------------- alerts ----------------------------------- */
 
 const alertFromRow = (r) => ({
