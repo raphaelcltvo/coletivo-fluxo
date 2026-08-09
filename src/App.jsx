@@ -533,9 +533,19 @@ const NAV_STAFF = [
   { id: "demandas", label: "Minhas demandas", icon: ClipboardList },
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
 ];
+/** Itens que o admin pode liberar/esconder por pessoa. Configurações e Equipe
+ * & Acessos ficam de fora de propósito — nunca aparecem pra quem não é admin. */
+const ASSIGNABLE_NAV = NAV_ADMIN.filter((n) => n.id !== "config" && n.id !== "equipe");
+const DEFAULT_STAFF_TABS = NAV_STAFF.map((n) => n.id);
 
-function Sidebar({ tab, setTab, alertCount, demandCount, role, pendingByTab = {} }) {
-  const nav = role === "admin" ? NAV_ADMIN : NAV_STAFF;
+function navForRole(role, allowedTabs) {
+  if (role === "admin") return NAV_ADMIN;
+  const tabs = allowedTabs && allowedTabs.length ? allowedTabs : DEFAULT_STAFF_TABS;
+  return ASSIGNABLE_NAV.filter((n) => tabs.includes(n.id)).map((n) => (n.id === "demandas" ? { ...n, label: "Minhas demandas" } : n));
+}
+
+function Sidebar({ tab, setTab, alertCount, demandCount, role, allowedTabs, pendingByTab = {} }) {
+  const nav = navForRole(role, allowedTabs);
   return (
     <div style={{ width: 216, flexShrink: 0, background: C.surface, borderRight: `1px solid ${C.border}`, padding: "22px 14px", display: "flex", flexDirection: "column", gap: 4, minHeight: "100%" }}>
       <style>{`@keyframes fluxo-bolt-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }`}</style>
@@ -823,6 +833,38 @@ function TeamView({ team, setTeam, demands, clients, onNotify }) {
               </div>
               {isOpen && hasQueue && (
                 <div style={{ padding: "0 16px 16px 64px", borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ margin: "12px 0" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.mutedDim, textTransform: "uppercase", marginBottom: 6 }}>Menu — o que essa pessoa vê</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {ASSIGNABLE_NAV.map((n) => {
+                        const active = (m.allowedTabs || DEFAULT_STAFF_TABS).includes(n.id);
+                        return (
+                          <label
+                            key={n.id}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 5, fontSize: 12, cursor: "pointer",
+                              background: active ? C.brandDim : C.surface2, color: active ? C.brand : C.muted,
+                              border: `1px solid ${active ? C.brand : C.border}`, borderRadius: 999, padding: "4px 10px", fontWeight: active ? 700 : 500,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={active}
+                              onChange={() => {
+                                const current = m.allowedTabs || DEFAULT_STAFF_TABS;
+                                const next = current.includes(n.id) ? current.filter((id) => id !== n.id) : [...current, n.id];
+                                setTeam((t) => t.map((x) => (x.id === m.id ? { ...x, allowedTabs: next } : x)));
+                                db.updateTeamMemberTabs(m.id, next).catch((e) => console.error(e));
+                              }}
+                              style={{ margin: 0 }}
+                            />
+                            {n.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div style={{ marginTop: 12, marginBottom: 10 }}>
                     <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                       <input style={{ ...inputStyle, flex: 1 }} placeholder="Mensagem para notificar agora" value={msgDraft} onChange={(e) => setMsgDraft(e.target.value)} />
@@ -2288,6 +2330,7 @@ export default function App() {
 
   const alertCount = useMemo(() => computeAlerts(clients, entries).length, [clients, entries]);
   const role = myProfile?.role || "atendimento";
+  const myAllowedTabs = useMemo(() => navForRole(role, myProfile?.allowedTabs).map((n) => n.id), [role, myProfile?.allowedTabs]);
   const demandCount = (role === "admin" ? demands : demands.filter((d) => (d.assigneeIds || []).includes(myProfile?.id))).filter((d) => d.status !== "concluida").length;
 
   // Padrão geral do raiozinho: qualquer item do menu com algo pendente de resolver.
@@ -2444,9 +2487,9 @@ export default function App() {
   }, [loaded, myProfile?.status, alerts.length, communicationRules.length]);
 
   useEffect(() => {
-    const allowed = (role === "admin" ? NAV_ADMIN : NAV_STAFF).map((n) => n.id);
+    const allowed = navForRole(role, myProfile?.allowedTabs).map((n) => n.id);
     if (!allowed.includes(tab)) setTab(allowed[0]);
-  }, [role]); // eslint-disable-line
+  }, [role, myProfile?.allowedTabs]); // eslint-disable-line
 
   if (sessionLoading) return null;
 
@@ -2478,7 +2521,7 @@ export default function App() {
   return (
     <div style={{ ...rootVars, display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "Inter, sans-serif" }}>
       <style>{FONT_IMPORT}</style>
-      <Sidebar tab={tab} setTab={setTab} alertCount={alertCount} demandCount={demandCount} role={role} pendingByTab={pendingByTab} />
+      <Sidebar tab={tab} setTab={setTab} alertCount={alertCount} demandCount={demandCount} role={role} allowedTabs={myProfile?.allowedTabs} pendingByTab={pendingByTab} />
       <div style={{ flex: 1, padding: "22px 32px", overflowX: "hidden" }}>
         <TopBar theme={theme} setTheme={setTheme} me={myProfile} notifications={notifications} setNotifications={setNotifications} />
         {tab === "threads" && (
@@ -2494,11 +2537,11 @@ export default function App() {
             clients={clients} team={team} me={myProfile} role={role}
           />
         )}
-        {tab === "clientes" && role === "admin" && <ClientsView clients={clients} setClients={setClients} team={team} themes={themes} setThemes={setThemes} themeGroups={themeGroups} />}
-        {tab === "dashboard" && role === "admin" && (
+        {tab === "clientes" && myAllowedTabs.includes("clientes") && <ClientsView clients={clients} setClients={setClients} team={team} themes={themes} setThemes={setThemes} themeGroups={themeGroups} />}
+        {tab === "dashboard" && myAllowedTabs.includes("dashboard") && (
           <ZeusView conversations={zeusConversations} setConversations={setZeusConversations} clients={clients} me={myProfile} />
         )}
-        {tab === "alertas" && role === "admin" && (
+        {tab === "alertas" && myAllowedTabs.includes("alertas") && (
           <AlertsView
             clients={clients} entries={entries} demands={demands} onCreateDemand={createDemandFromAlert}
             manualAlerts={manualAlerts} manualAlertTags={manualAlertTags} themes={themes} setThemes={setThemes}
@@ -2508,8 +2551,8 @@ export default function App() {
         )}
         {tab === "demandas" && <DemandsView clients={clients} demands={demands} setDemands={setDemands} team={team} notifications={notifications} setNotifications={setNotifications} currentUserId={myProfile.id} role={role} rules={communicationRules} themes={themes} themeGroups={themeGroups} manualAlertTags={manualAlertTags} onCreateAlert={createManualAlert} demandTypes={demandTypes} demandTypeFields={demandTypeFields} />}
         {tab === "lembretes" && <RemindersView clients={clients} />}
-        {tab === "relatorios" && role === "admin" && <ReportsView clients={clients} entries={entries} demands={demands} />}
-        {tab === "reguas" && role === "admin" && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} themes={themes} setThemes={setThemes} themeGroups={themeGroups} setThemeGroups={setThemeGroups} />}
+        {tab === "relatorios" && myAllowedTabs.includes("relatorios") && <ReportsView clients={clients} entries={entries} demands={demands} />}
+        {tab === "reguas" && myAllowedTabs.includes("reguas") && <RulesView team={team} rules={communicationRules} setRules={setCommunicationRules} themes={themes} setThemes={setThemes} themeGroups={themeGroups} setThemeGroups={setThemeGroups} />}
         {tab === "config" && role === "admin" && <ConfigView demandTypes={demandTypes} setDemandTypes={setDemandTypes} demandTypeFields={demandTypeFields} setDemandTypeFields={setDemandTypeFields} />}
         {tab === "equipe" && role === "admin" && <TeamView team={team} setTeam={setTeam} demands={demands} clients={clients} onNotify={manualNotify} />}
       </div>

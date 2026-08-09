@@ -15,7 +15,7 @@ function check(error) {
 export async function fetchTeam() {
   const { data, error } = await supabase.from("fluxo_profiles").select("*").order("created_at");
   check(error);
-  return data.map((r) => ({ id: r.id, name: r.name, email: r.email, role: r.role, status: r.status }));
+  return data.map((r) => ({ id: r.id, name: r.name, email: r.email, role: r.role, status: r.status, allowedTabs: r.allowed_tabs || null }));
 }
 
 export async function inviteTeamMember({ name, email, role }) {
@@ -37,6 +37,11 @@ export async function updateTeamMemberStatus(id, status) {
   check(error);
 }
 
+export async function updateTeamMemberTabs(id, allowedTabs) {
+  const { error } = await supabase.from("fluxo_profiles").update({ allowed_tabs: allowedTabs }).eq("id", id);
+  check(error);
+}
+
 export async function deleteTeamMember(id) {
   const { error } = await supabase.from("fluxo_profiles").delete().eq("id", id);
   check(error);
@@ -52,7 +57,7 @@ export async function fetchMyProfile(id) {
   const { data, error } = await supabase.from("fluxo_profiles").select("*").eq("id", id).maybeSingle();
   check(error);
   return data
-    ? { id: data.id, name: data.name, email: data.email, role: data.role, status: data.status, onboardedAt: data.onboarded_at }
+    ? { id: data.id, name: data.name, email: data.email, role: data.role, status: data.status, onboardedAt: data.onboarded_at, allowedTabs: data.allowed_tabs || null }
     : null;
 }
 
