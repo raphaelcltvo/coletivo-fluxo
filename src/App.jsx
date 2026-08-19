@@ -516,22 +516,28 @@ function TopBar({ theme, setTheme, me, notifications, setNotifications }) {
 /* ---------------------------------------------------------------------- */
 /* SIDEBAR                                                                  */
 /* ---------------------------------------------------------------------- */
+/* Menu enxuto: só o núcleo (Threads/Slack + Demandas/Trello + Alertas),
+ * mais o suporte necessário (Clientes, Equipe). As demais telas (Dashboard,
+ * Lembretes, Relatórios, Réguas, Configurações) continuam funcionando no
+ * código — só saíram do menu pra reduzir a confusão. Reativar é só
+ * devolver a linha aqui embaixo. */
 const NAV_ADMIN = [
   { id: "threads", label: "Threads", icon: Rss },
   { id: "clientes", label: "Clientes", icon: Users },
-  { id: "dashboard", label: "Dashboard", icon: TrendingUp },
   { id: "alertas", label: "Alertas", icon: Bell },
   { id: "demandas", label: "Demandas", icon: ClipboardList },
+  { id: "equipe", label: "Equipe & Acessos", icon: UserCog },
+];
+const NAV_HIDDEN = [
+  { id: "dashboard", label: "Dashboard", icon: TrendingUp },
   { id: "lembretes", label: "Lembretes", icon: MessageSquare },
   { id: "relatorios", label: "Relatórios", icon: FileText },
   { id: "reguas", label: "Réguas de comunicação", icon: Megaphone },
   { id: "config", label: "Configurações", icon: Settings },
-  { id: "equipe", label: "Equipe & Acessos", icon: UserCog },
 ];
 const NAV_STAFF = [
   { id: "threads", label: "Threads", icon: Rss },
   { id: "demandas", label: "Minhas demandas", icon: ClipboardList },
-  { id: "lembretes", label: "Lembretes", icon: MessageSquare },
 ];
 /** Itens que o admin pode liberar/esconder por pessoa. Configurações e Equipe
  * & Acessos ficam de fora de propósito — nunca aparecem pra quem não é admin. */
@@ -1717,7 +1723,7 @@ function DemandForm({ clients, team, demandTypes = [], demandTypeFields = [], on
   );
 }
 
-function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [], themeGroups = [], demandTypes = [] }) {
+function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [], themeGroups = [], demandTypes = [], onDragStart }) {
   const [showAction, setShowAction] = useState(false);
   const [actionType, setActionType] = useState("");
   const [actionDesc, setActionDesc] = useState("");
@@ -1741,14 +1747,6 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
     onUpdate({ ...demand, checklist: demand.checklist.map((c) => (c.clientId === clientId ? { ...c, checked: !c.checked } : c)) });
   };
 
-  const handleStatusChange = (newStatus) => {
-    if (newStatus === "concluida" && demand.requiresProof && !proofSatisfied) {
-      setShowProofForm(true);
-      return;
-    }
-    onUpdate({ ...demand, status: newStatus });
-  };
-
   const submitProof = () => {
     if (!proofUrl.trim() && !proofAnswer.trim()) return;
     onUpdate({
@@ -1762,7 +1760,11 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
   const reproveProof = () => onUpdate({ ...demand, status: "andamento", proofStatus: "reprovada", reviewNote: "Reprovado pelo gestor — refazer e reenviar comprovação." });
 
   return (
-    <Ticket style={{ padding: 13, marginBottom: 10 }}>
+    <Ticket
+      style={{ padding: 13, marginBottom: 10, cursor: onDragStart ? "grab" : "default" }}
+      draggable={!!onDragStart}
+      onDragStart={onDragStart ? (e) => { e.dataTransfer.setData("text/plain", demand.id); e.dataTransfer.effectAllowed = "move"; onDragStart(demand.id); } : undefined}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, lineHeight: 1.3 }}>{demand.title}</div>
         <button onClick={() => onDelete(demand.id)} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer", flexShrink: 0 }}><X size={14} /></button>
@@ -1880,6 +1882,12 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
         </button>
       )}
 
+      {demand.requiresProof && !proofSatisfied && !showProofForm && (
+        <button onClick={() => setShowProofForm(true)} style={{ background: "none", border: "none", color: C.amber, fontSize: 11.5, fontWeight: 600, cursor: "pointer", marginTop: 8, padding: 0, display: "flex", alignItems: "center", gap: 4 }}>
+          <Paperclip size={12} /> Concluir com comprovação
+        </button>
+      )}
+
       {showProofForm && (
         <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8, background: C.surface2, borderRadius: 8, padding: 10 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: C.text, marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
@@ -1895,11 +1903,6 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-        <select style={{ ...inputStyle, fontSize: 11.5, padding: "6px 8px" }} value={demand.status} onChange={(e) => handleStatusChange(e.target.value)}>
-          {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </select>
-      </div>
     </Ticket>
   );
 }
@@ -1911,6 +1914,8 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
   const [showForm, setShowForm] = useState(false);
   const [filterTag, setFilterTag] = useState("");
   const [filterPerson, setFilterPerson] = useState("");
+  const [draggedId, setDraggedId] = useState(null);
+  const [dragOverStatus, setDragOverStatus] = useState(null);
 
   const tagsByAlert = useMemo(() => {
     const map = {};
@@ -1982,6 +1987,16 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
   const remove = (id) => {
     setDemands((ds) => ds.filter((x) => x.id !== id));
     db.deleteDemand(id).catch((e) => console.error(e));
+  };
+
+  // Soltou o card numa coluna nova no board. Se for pra "Concluída" e a
+  // demanda exigir comprovação ainda pendente, o card fica onde está — o
+  // botão "Concluir com comprovação" no próprio card resolve isso.
+  const attemptStatusChange = (demand, newStatus) => {
+    if (!demand || demand.status === newStatus) return;
+    const proofSatisfied = !demand.requiresProof || ["enviada", "aprovada"].includes(demand.proofStatus);
+    if (newStatus === "concluida" && !proofSatisfied) return;
+    update({ ...demand, status: newStatus });
   };
 
   const generateDashes = () => {
@@ -2063,8 +2078,21 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         {STATUSES.map((s) => {
           const items = visibleDemands.filter((d) => d.status === s.id);
+          const isDragOver = dragOverStatus === s.id;
           return (
-            <div key={s.id}>
+            <div
+              key={s.id}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverStatus !== s.id) setDragOverStatus(s.id); }}
+              onDragLeave={() => setDragOverStatus((cur) => (cur === s.id ? null : cur))}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer.getData("text/plain") || draggedId;
+                attemptStatusChange(demands.find((d) => d.id === id), s.id);
+                setDragOverStatus(null);
+                setDraggedId(null);
+              }}
+              style={{ background: isDragOver ? C.surface2 : "transparent", borderRadius: 10, padding: isDragOver ? 6 : 0, transition: "background .1s" }}
+            >
               <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 10, display: "flex", justifyContent: "space-between", borderBottom: `2px solid ${C.border}`, paddingBottom: 8 }}>
                 {s.label} <span style={{ color: C.mutedDim }}>{items.length}</span>
               </div>
@@ -2075,6 +2103,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
                   tags={(tagsByAlert[d.alertId] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
                   themeGroups={themeGroups}
                   demandTypes={demandTypes}
+                  onDragStart={setDraggedId}
                 />
               ))}
             </div>
