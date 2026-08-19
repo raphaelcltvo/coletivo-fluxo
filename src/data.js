@@ -308,6 +308,8 @@ const notificationFromRow = (r) => ({
   message: r.message,
   demandId: r.demand_id || null,
   read: r.read,
+  kind: r.kind || "generico",
+  data: r.data || {},
   createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
 });
 
@@ -317,6 +319,8 @@ const notificationToRow = (n) => ({
   message: n.message,
   demand_id: n.demandId || null,
   read: !!n.read,
+  kind: n.kind || "generico",
+  data: n.data || {},
 });
 
 export async function fetchNotifications() {

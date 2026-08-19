@@ -660,6 +660,7 @@ export function ThreadsView({
   postReads, setPostReads, postReplies, setPostReplies, postLikes, setPostLikes,
   dmConversations, setDmConversations,
   themes, setThemes, themeGroups, setThemeGroups, clients, team, me, role,
+  onNotify,
 }) {
   const [filterTag, setFilterTag] = useState("");
   const [filterClient, setFilterClient] = useState("");
@@ -780,6 +781,29 @@ export function ThreadsView({
     const r = { id: uid(), postId, authorId: me.id, message: text, createdAt: Date.now() };
     setPostReplies((rs) => [...rs, r]);
     await db.insertPostReply(r);
+
+    // E-mail de "resposta em thread" pro autor do post e quem já respondeu
+    // antes — nunca pra quem acabou de responder agora.
+    if (onNotify) {
+      const post = posts.find((p) => p.id === postId);
+      if (post) {
+        const priorRepliers = (repliesByPost[postId] || []).map((x) => x.authorId);
+        const recipients = [...new Set([post.authorId, ...priorRepliers])].filter((id) => id !== me.id);
+        if (recipients.length) {
+          const threadData = {
+            autor: me.name || "Alguém",
+            titulo_curto: post.message.slice(0, 60),
+            post_original: post.message.slice(0, 140),
+            resposta: text.slice(0, 140),
+          };
+          onNotify(recipients.map((memberId) => ({
+            id: uid(), memberId, kind: "thread", data: threadData,
+            message: `${me.name || "Alguém"} respondeu "${threadData.titulo_curto}"`,
+            demandId: null, read: false, createdAt: Date.now(),
+          })));
+        }
+      }
+    }
   };
 
   const toggleLike = (postId) => {

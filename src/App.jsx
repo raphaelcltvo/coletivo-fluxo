@@ -2004,6 +2004,28 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       const { notifs, alertsToCreate } = evaluateActionRules(rules, "status_mudou", d, client, { newStatus: d.status }, currentUserId);
       pushNotifications(notifs);
       if (alertsToCreate.length) dispatchRuleAlerts(alertsToCreate);
+
+      // E-mail de "etapa mudou" só quando a nova etapa exige ação de quem
+      // recebe (aberta/andamento) — aguardando cliente e concluída não
+      // dependem do responsável, então não geram e-mail.
+      const ACTION_STATUSES = ["aberta", "andamento"];
+      if (ACTION_STATUSES.includes(d.status)) {
+        const recipients = (d.assigneeIds || []).filter((id) => id !== currentUserId);
+        if (recipients.length) {
+          const statusLabel = (id) => STATUSES.find((s) => s.id === id)?.label || id;
+          const etapaData = {
+            cliente: client?.name || "", titulo: d.title,
+            status_de: statusLabel(prev.status), status_para: statusLabel(d.status),
+            prazo: d.dueDate || "", quem_moveu: team.find((t) => t.id === currentUserId)?.name || "Alguém",
+            texto: d.briefing || d.description || "",
+          };
+          pushNotifications(recipients.map((memberId) => ({
+            id: uid(), memberId, kind: "etapa", data: etapaData,
+            message: `"${d.title}" → ${statusLabel(d.status)}`,
+            demandId: d.id, read: false, createdAt: Date.now(),
+          })));
+        }
+      }
     }
     if (prev && prev.proofStatus !== "reprovada" && d.proofStatus === "reprovada") {
       pushNotificationToAll(d.assigneeIds, `Comprovação reprovada: refaça "${d.title}" e reenvie.`, d.id);
@@ -2504,6 +2526,12 @@ export default function App() {
     db.insertNotification(notif).catch((e) => console.error(e));
   }, []);
 
+  const pushTypedNotifications = useCallback((notifs) => {
+    if (!notifs.length) return;
+    setNotifications((ns) => [...ns, ...notifs]);
+    db.insertNotifications(notifs).catch((e) => console.error(e));
+  }, []);
+
   const createManualAlert = useCallback(async (alert, tagIds) => {
     setManualAlerts((as) => [...as, alert]);
     if (tagIds.length) setManualAlertTags((ts) => [...ts, ...tagIds.map((themeId) => ({ alertId: alert.id, themeId }))]);
@@ -2537,6 +2565,8 @@ export default function App() {
           if (!everyone) setPostRecipients((rs) => [...rs, ...recipientIds.map((memberId) => ({ postId: post.id, memberId }))]);
           if (tagIds.length) setPostTags((ts) => [...ts, ...tagIds.map((themeId) => ({ postId: post.id, themeId }))]);
 
+          const alertClientName = clients.find((c) => c.id === clientId)?.name || "";
+          const alertData = { titulo: alert.title, descricao: alert.description, cliente: alertClientName, vira_card: alert.createsCard };
           const notifs = [];
           if (alert.createsCard) {
             for (const memberId of recipientIds) {
@@ -2550,11 +2580,11 @@ export default function App() {
               };
               await db.insertDemand(demand);
               setDemands((ds) => [...ds, demand]);
-              notifs.push({ id: uid(), memberId, message: `Alerta: "${alert.title}"`, demandId: demand.id, read: false, createdAt: Date.now() });
+              notifs.push({ id: uid(), memberId, kind: "alerta", data: alertData, message: `Alerta: "${alert.title}"`, demandId: demand.id, read: false, createdAt: Date.now() });
             }
           } else {
             recipientIds.forEach((memberId) => {
-              notifs.push({ id: uid(), memberId, message: `Alerta: "${alert.title}"`, demandId: null, read: false, createdAt: Date.now() });
+              notifs.push({ id: uid(), memberId, kind: "alerta", data: alertData, message: `Alerta: "${alert.title}"`, demandId: null, read: false, createdAt: Date.now() });
             });
           }
           if (notifs.length) {
@@ -2680,6 +2710,7 @@ export default function App() {
             dmConversations={dmConversations} setDmConversations={setDmConversations}
             themes={themes} setThemes={setThemes} themeGroups={themeGroups} setThemeGroups={setThemeGroups}
             clients={clients} team={team} me={myProfile} role={role}
+            onNotify={pushTypedNotifications}
           />
         )}
         {tab === "clientes" && myAllowedTabs.includes("clientes") && <ClientsView clients={clients} setClients={setClients} team={team} themes={themes} setThemes={setThemes} themeGroups={themeGroups} />}
