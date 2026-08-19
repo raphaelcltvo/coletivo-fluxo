@@ -120,6 +120,67 @@ function alertaSubject(d: Record<string, unknown>) {
 }
 
 // ---------------------------------------------------------------------
+// 4 · Prazo estourado
+// ---------------------------------------------------------------------
+function atrasadoHtml(d: Record<string, unknown>) {
+  const dias = Number(d.dias) || 0;
+  const card = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border:1px solid #E3E4DF;border-radius:12px;border-top:3px solid #D03F39;">
+<tr><td style="padding:20px 24px 6px;">${pill(`ATRASADO HÁ ${dias} DIA${dias === 1 ? "" : "S"}`, "#FBE1DE", "#D03F39")}</td></tr>
+<tr><td style="padding:10px 24px 0;">
+  <div style="font-weight:800;font-size:19px;text-transform:uppercase;color:#1B1D22;line-height:1.25;">${esc(d.titulo)}</div>
+</td></tr>
+<tr><td style="padding:10px 24px 0;font-size:13.5px;color:#666A70;">${d.cliente ? esc(d.cliente) + " · " : ""}prazo era <b style="color:#1B1D22;">${esc(d.prazo)}</b></td></tr>
+<tr><td style="padding:18px 24px 0;font-size:13.5px;color:#666A70;line-height:1.6;">Se já resolveu, é só mover pra Concluída.</td></tr>
+<tr><td style="padding:20px 24px 22px;">${button("Abrir card", APP_URL, "#D03F39")}</td></tr>
+</table>`;
+  return shell(card, "Você recebeu isso porque é responsável por este card no Coletivo · Fluxo.");
+}
+function atrasadoText(d: Record<string, unknown>) {
+  return `${d.titulo}\n${d.cliente ? d.cliente + " · " : ""}prazo era ${d.prazo}\n\nAtrasado há ${d.dias} dia(s). Se já resolveu, mova pra Concluída.\n\nVer no Fluxo: ${APP_URL}`;
+}
+function atrasadoSubject(d: Record<string, unknown>) {
+  const dias = Number(d.dias) || 0;
+  return `Atrasado: "${d.titulo}" venceu há ${dias} dia${dias === 1 ? "" : "s"}`;
+}
+
+// ---------------------------------------------------------------------
+// 5 · Resumo de pendências
+// ---------------------------------------------------------------------
+function digestSection(title: string, color: string, items: Array<Record<string, unknown>>, withDays: boolean) {
+  if (!items.length) return "";
+  const rows = items.map((it) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #EFEFEC;"><tr>
+    <td style="padding:9px 0;font-size:13px;color:#1B1D22;">${esc(it.titulo)}${it.cliente ? ` <span style="color:#9C9FA4;">· ${esc(it.cliente)}</span>` : ""}</td>
+    ${withDays ? `<td style="padding:9px 0;font-size:12px;color:${color};text-align:right;white-space:nowrap;">${esc(it.dias)}d</td>` : ""}
+  </tr></table>`).join("");
+  return `<tr><td style="padding:18px 24px 6px;"><div style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:${color};">${esc(title)} · ${items.length}</div></td></tr>
+<tr><td style="padding:0 24px;">${rows}</td></tr>`;
+}
+function resumoHtml(d: Record<string, unknown>) {
+  const atrasados = (d.atrasados as Array<Record<string, unknown>>) || [];
+  const aguardando = (d.aguardando as Array<Record<string, unknown>>) || [];
+  const alertas = (d.alertas as Array<Record<string, unknown>>) || [];
+  const card = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border:1px solid #E3E4DF;border-radius:12px;">
+<tr><td style="padding:22px 24px 4px;">
+  <div style="font-weight:800;font-size:19px;text-transform:uppercase;color:#1B1D22;">Seu resumo de ${esc(d.dia)}</div>
+  <div style="font-size:13px;color:#666A70;margin-top:3px;">${esc(d.total)} ${Number(d.total) === 1 ? "item pedindo" : "itens pedindo"} atenção</div>
+</td></tr>
+${digestSection("Atrasados", "#D03F39", atrasados, true)}
+${digestSection("Aguardando resposta", "#B4700F", aguardando, false)}
+${digestSection("Alertas de hoje", "#0A57F5", alertas, false)}
+<tr><td style="padding:22px 24px 24px;">${button("Abrir Demandas", APP_URL)}</td></tr>
+</table>`;
+  return shell(card, "Resumo diário — só chega se você tiver pelo menos 1 pendência.", "Desativar resumo diário");
+}
+function resumoText(d: Record<string, unknown>) {
+  const list = (items: Array<Record<string, unknown>>, label: string) =>
+    items.length ? `\n${label} (${items.length}):\n` + items.map((it) => `- ${it.titulo}${it.cliente ? " · " + it.cliente : ""}`).join("\n") + "\n" : "";
+  return `Seu resumo de ${d.dia}: ${d.total} pendências\n${list((d.atrasados as any[]) || [], "Atrasados")}${list((d.aguardando as any[]) || [], "Aguardando resposta")}${list((d.alertas as any[]) || [], "Alertas de hoje")}\nVer no Fluxo: ${APP_URL}`;
+}
+function resumoSubject(d: Record<string, unknown>) {
+  return `Seu resumo de ${d.dia}: ${d.total} pendências`;
+}
+
+// ---------------------------------------------------------------------
 // Fallback — notificações sem kind reconhecido (ex: réguas de comunicação).
 // ---------------------------------------------------------------------
 function genericoHtml(message: string, name: string) {
@@ -139,6 +200,10 @@ function render(kind: string, data: Record<string, unknown>, message: string, na
       return { subject: threadSubject(data), html: threadHtml(data), text: threadText(data) };
     case "alerta":
       return { subject: alertaSubject(data), html: alertaHtml(data), text: alertaText(data) };
+    case "atrasado":
+      return { subject: atrasadoSubject(data), html: atrasadoHtml(data), text: atrasadoText(data) };
+    case "resumo":
+      return { subject: resumoSubject(data), html: resumoHtml(data), text: resumoText(data) };
     default:
       return {
         subject: message.length <= 78 ? message : message.slice(0, 75) + "...",
