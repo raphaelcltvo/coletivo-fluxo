@@ -172,6 +172,8 @@ const demandFromRow = (r) => ({
   originAlertKey: r.origin_alert_key || undefined,
   originInsightKey: r.origin_insight_key || undefined,
   alertId: r.alert_id || undefined,
+  boardOrder: r.board_order ?? 0,
+  archivedAt: r.archived_at ? new Date(r.archived_at).getTime() : null,
   createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
 });
 
@@ -206,6 +208,8 @@ const demandToRow = (d) => ({
   origin_alert_key: d.originAlertKey || null,
   origin_insight_key: d.originInsightKey || null,
   alert_id: d.alertId || null,
+  board_order: d.boardOrder ?? 0,
+  archived_at: d.archivedAt ? new Date(d.archivedAt).toISOString() : null,
 });
 
 export async function fetchDemands() {

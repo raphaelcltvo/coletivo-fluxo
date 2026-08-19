@@ -7,7 +7,7 @@ import {
   Users, ClipboardList, TrendingUp, Bell, FileText, MessageSquare,
   Plus, X, ChevronRight, Clock, Copy, Trash2, ArrowUpRight, ArrowDownRight,
   Store, Target, UserCog, Mail, Paperclip, Repeat, Lock, Sun, Moon, ChevronDown, CheckCircle2,
-  Send, Megaphone, CalendarClock, Zap, LogOut, Rss, Settings,
+  Send, Megaphone, CalendarClock, Zap, LogOut, Rss, Settings, Archive, ArchiveRestore,
 } from "lucide-react";
 import { ThreadsView, TagPicker, ThemeManager, resolveTone } from "./threads.jsx";
 import { Onboarding } from "./onboarding.jsx";
@@ -1723,7 +1723,62 @@ function DemandForm({ clients, team, demandTypes = [], demandTypeFields = [], on
   );
 }
 
-function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, tags = [], themeGroups = [], demandTypes = [], onDragStart }) {
+/** Card compacto do board — só o essencial pra escanear a coluna. Clicar abre
+ * o detalhe completo; arrastar reordena ou muda de coluna. */
+function DemandCard({ demand, client, team, onOpen, onArchive, demandTypes = [], onDragStart, onCardDragOver, onCardDrop, dragHighlight }) {
+  const unit = client?.units.find((u) => u.id === demand.unitId);
+  const assignees = (demand.assigneeIds || []).map((id) => team.find((t) => t.id === id)).filter(Boolean);
+  const urgency = computeUrgency(demand);
+  const proofSatisfied = !demand.requiresProof || ["enviada", "aprovada"].includes(demand.proofStatus);
+
+  return (
+    <Ticket
+      style={{
+        padding: 12, marginBottom: 10, cursor: "pointer",
+        borderTop: dragHighlight === "before" ? `2px solid ${C.brand}` : undefined,
+        borderBottom: dragHighlight === "after" ? `2px solid ${C.brand}` : undefined,
+      }}
+      draggable
+      onDragStart={(e) => { e.dataTransfer.setData("text/plain", demand.id); e.dataTransfer.effectAllowed = "move"; onDragStart(demand.id); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onCardDragOver(demand.id, e.clientY - rect.top < rect.height / 2);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onCardDrop(demand.id, e.clientY - rect.top < rect.height / 2);
+      }}
+      onClick={onOpen}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.3 }}>{demand.title}</div>
+        <button onClick={(e) => { e.stopPropagation(); onArchive(); }} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer", flexShrink: 0 }} title="Arquivar"><Archive size={13} /></button>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3 }}>{client?.name}{unit ? ` · ${unit.name}` : ""}</div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demand.demandTypeId ? (demandTypes.find((t) => t.id === demand.demandTypeId)?.name || "Tipo removido") : demandTypeLabel(demand.type)}</Badge>
+        <span title={urgency !== demand.priority ? `Prioridade original: ${demand.priority}` : undefined} style={{ fontSize: 10.5, fontWeight: 700, color: PRIORITIES[urgency], border: `1px solid ${PRIORITIES[urgency]}`, borderRadius: 999, padding: "2px 7px", textTransform: "uppercase" }}>
+          {urgency}
+        </span>
+        {demand.dueDate && (
+          <span style={{ fontSize: 11, color: C.muted, display: "flex", alignItems: "center", gap: 3 }}>
+            <Clock size={11} /> {demand.dueDate}
+          </span>
+        )}
+        {!proofSatisfied && <Paperclip size={12} color={C.amber} title="Comprovação pendente" />}
+      </div>
+      <div style={{ marginTop: 6, fontSize: 11, color: C.mutedDim }}>
+        {assignees.length ? assignees.map((a) => a.name).join(", ") : "não atribuído"}
+      </div>
+    </Ticket>
+  );
+}
+
+/** Detalhe completo da demanda — abre num modal ao clicar no card. */
+function DemandDetailModal({ demand, client, team, onUpdate, onArchive, onNotify, role, tags = [], themeGroups = [], demandTypes = [], onClose }) {
   const [showAction, setShowAction] = useState(false);
   const [actionType, setActionType] = useState("");
   const [actionDesc, setActionDesc] = useState("");
@@ -1734,7 +1789,6 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
   const unit = client?.units.find((u) => u.id === demand.unitId);
   const assignees = (demand.assigneeIds || []).map((id) => team.find((t) => t.id === id)).filter(Boolean);
   const isDash = demand.type === "dash_parcial" || demand.type === "dash_consolidado";
-  const urgency = computeUrgency(demand);
   const proofSatisfied = !demand.requiresProof || ["enviada", "aprovada"].includes(demand.proofStatus);
 
   const addAction = () => {
@@ -1760,150 +1814,144 @@ function DemandCard({ demand, client, team, onUpdate, onDelete, onNotify, role, 
   const reproveProof = () => onUpdate({ ...demand, status: "andamento", proofStatus: "reprovada", reviewNote: "Reprovado pelo gestor — refazer e reenviar comprovação." });
 
   return (
-    <Ticket
-      style={{ padding: 13, marginBottom: 10, cursor: onDragStart ? "grab" : "default" }}
-      draggable={!!onDragStart}
-      onDragStart={onDragStart ? (e) => { e.dataTransfer.setData("text/plain", demand.id); e.dataTransfer.effectAllowed = "move"; onDragStart(demand.id); } : undefined}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, lineHeight: 1.3 }}>{demand.title}</div>
-        <button onClick={() => onDelete(demand.id)} style={{ background: "none", border: "none", color: C.mutedDim, cursor: "pointer", flexShrink: 0 }}><X size={14} /></button>
-      </div>
-      <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>{client?.name}{unit ? ` · ${unit.name}` : ""}</div>
-      {demand.description && <div style={{ fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.4 }}>{demand.description}</div>}
-      {demand.briefing && <div style={{ fontSize: 12, color: C.muted, marginTop: 6, lineHeight: 1.4, fontStyle: "italic" }}>"{demand.briefing}"</div>}
-      {demand.attachments?.length > 0 && (
-        <div style={{ marginTop: 6 }}>
-          {demand.attachments.map((a) => (
-            <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: C.brand, display: "flex", alignItems: "center", gap: 4, textDecoration: "none", marginBottom: 2 }}>
-              <Paperclip size={11} /> {a.name}
-            </a>
-          ))}
-        </div>
-      )}
+    <Modal title={demand.title} subtitle={`${client?.name || "—"}${unit ? " · " + unit.name : ""}`} onClose={onClose} wide>
+      <div style={{ maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
+        {demand.description && <div style={{ fontSize: 13, color: C.muted, marginBottom: 8, lineHeight: 1.4 }}>{demand.description}</div>}
+        {demand.briefing && <div style={{ fontSize: 13, color: C.muted, marginBottom: 8, lineHeight: 1.4, fontStyle: "italic" }}>"{demand.briefing}"</div>}
+        {demand.attachments?.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {demand.attachments.map((a) => (
+              <a key={a.id} href={a.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: C.brand, display: "flex", alignItems: "center", gap: 4, textDecoration: "none", marginBottom: 3 }}>
+                <Paperclip size={12} /> {a.name}
+              </a>
+            ))}
+          </div>
+        )}
 
-      {demand.type === "rotina_semanal" && demand.checklist?.length > 0 && (
-        <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-          {demand.checklist.map((c) => (
-              <label key={c.clientId} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: c.checked ? C.mutedDim : C.text, marginBottom: 4, cursor: "pointer", textDecoration: c.checked ? "line-through" : "none" }}>
+        {demand.type === "rotina_semanal" && demand.checklist?.length > 0 && (
+          <div style={{ marginBottom: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            {demand.checklist.map((c) => (
+              <label key={c.clientId} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: c.checked ? C.mutedDim : C.text, marginBottom: 5, cursor: "pointer", textDecoration: c.checked ? "line-through" : "none" }}>
                 <input type="checkbox" checked={c.checked} onChange={() => toggleChecklist(c.clientId)} />
                 {c.clientName || "Cliente"}
               </label>
-          ))}
-        </div>
-      )}
-
-      {demand.type === "revisao_oculta" && (
-        <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-          <Badge tone="brand">{demand.platform}</Badge>
-          <textarea
-            style={{ ...inputStyle, marginTop: 8, fontSize: 12, minHeight: 60 }}
-            placeholder="O que observou nessa revisão? (cardápio, fotos, preço, tempo de entrega...)"
-            value={obsDraft}
-            onChange={(e) => setObsDraft(e.target.value)}
-            onBlur={() => onUpdate({ ...demand, observation: obsDraft })}
-          />
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demand.demandTypeId ? (demandTypes.find((t) => t.id === demand.demandTypeId)?.name || "Tipo removido") : demandTypeLabel(demand.type)}</Badge>
-        {demand.alertId && <Badge tone="brand">Alerta</Badge>}
-        {tags.map((t) => <Badge key={t.id} tone={resolveTone(t, themeGroups)}>{t.name}</Badge>)}
-        <span title={urgency !== demand.priority ? `Prioridade original: ${demand.priority}` : undefined} style={{ fontSize: 10.5, fontWeight: 700, color: PRIORITIES[urgency], border: `1px solid ${PRIORITIES[urgency]}`, borderRadius: 999, padding: "2px 7px", textTransform: "uppercase" }}>
-          {urgency}
-        </span>
-        {demand.dueDate && (
-          <span style={{ fontSize: 11, color: C.muted, display: "flex", alignItems: "center", gap: 3 }}>
-            {isDash ? <Lock size={11} /> : <Clock size={11} />} {demand.dueDate}
-          </span>
+            ))}
+          </div>
         )}
-        {demand.recurring?.enabled && <Badge tone="amber"><span style={{ display: "flex", alignItems: "center", gap: 3 }}><Repeat size={10} />{demand.recurring.freq}</span></Badge>}
-        {demand.origin === "alerta" && <Badge tone="red">Alerta</Badge>}
-        {demand.origin === "sistema" && <Badge tone="teal">Automático</Badge>}
-        {demand.requiresProof && demand.proofStatus === "enviada" && <Badge tone="amber">Aguardando verificação</Badge>}
-        {demand.requiresProof && demand.proofStatus === "aprovada" && <Badge tone="teal">Comprovação aprovada</Badge>}
-        {demand.requiresProof && demand.proofStatus === "reprovada" && <Badge tone="red">Reprovada — refazer</Badge>}
-      </div>
 
-      {demand.proofStatus === "reprovada" && demand.reviewNote && (
-        <div style={{ marginTop: 6, fontSize: 11.5, color: C.red }}>{demand.reviewNote}</div>
-      )}
+        {demand.type === "revisao_oculta" && (
+          <div style={{ marginBottom: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            <Badge tone="brand">{demand.platform}</Badge>
+            <textarea
+              style={{ ...inputStyle, marginTop: 8, fontSize: 13, minHeight: 60 }}
+              placeholder="O que observou nessa revisão? (cardápio, fotos, preço, tempo de entrega...)"
+              value={obsDraft}
+              onChange={(e) => setObsDraft(e.target.value)}
+              onBlur={() => onUpdate({ ...demand, observation: obsDraft })}
+            />
+          </div>
+        )}
 
-      {demand.proof && (demand.proof.attachmentUrl || demand.proof.answer) && (
-        <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8, fontSize: 11.5 }}>
-          <div style={{ color: C.mutedDim, fontWeight: 700, textTransform: "uppercase", fontSize: 10.5, marginBottom: 3 }}>Comprovação enviada</div>
-          {demand.proof.attachmentUrl && (
-            <a href={demand.proof.attachmentUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, display: "flex", alignItems: "center", gap: 4, textDecoration: "none", marginBottom: 2 }}>
-              <Paperclip size={11} /> {demand.proof.attachmentUrl}
-            </a>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <Badge tone={TYPE_TONE[demand.type] || "muted"}>{demand.demandTypeId ? (demandTypes.find((t) => t.id === demand.demandTypeId)?.name || "Tipo removido") : demandTypeLabel(demand.type)}</Badge>
+          {demand.alertId && <Badge tone="brand">Alerta</Badge>}
+          {tags.map((t) => <Badge key={t.id} tone={resolveTone(t, themeGroups)}>{t.name}</Badge>)}
+          <Badge tone="muted">{demand.priority}</Badge>
+          {demand.dueDate && (
+            <span style={{ fontSize: 11.5, color: C.muted, display: "flex", alignItems: "center", gap: 3 }}>
+              {isDash ? <Lock size={12} /> : <Clock size={12} />} {demand.dueDate}
+            </span>
           )}
-          {demand.proof.answer && <div style={{ color: C.text }}>{demandTypeLabel(demand.type) && demand.proofQuestion ? `"${demand.proofQuestion}" → ` : ""}{demand.proof.answer}</div>}
-          {role === "admin" && demand.proofStatus === "enviada" && (
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-              <Btn style={{ fontSize: 11.5, padding: "6px 10px" }} onClick={approveProof}><CheckCircle2 size={12} /> Aprovar</Btn>
-              <Btn variant="danger" style={{ fontSize: 11.5, padding: "6px 10px" }} onClick={reproveProof}>Reprovar</Btn>
-            </div>
+          {demand.recurring?.enabled && <Badge tone="amber"><span style={{ display: "flex", alignItems: "center", gap: 3 }}><Repeat size={10} />{demand.recurring.freq}</span></Badge>}
+          {demand.origin === "alerta" && <Badge tone="red">Alerta</Badge>}
+          {demand.origin === "sistema" && <Badge tone="teal">Automático</Badge>}
+          {demand.requiresProof && demand.proofStatus === "enviada" && <Badge tone="amber">Aguardando verificação</Badge>}
+          {demand.requiresProof && demand.proofStatus === "aprovada" && <Badge tone="teal">Comprovação aprovada</Badge>}
+          {demand.requiresProof && demand.proofStatus === "reprovada" && <Badge tone="red">Reprovada — refazer</Badge>}
+        </div>
+
+        {demand.proofStatus === "reprovada" && demand.reviewNote && (
+          <div style={{ marginBottom: 8, fontSize: 12.5, color: C.red }}>{demand.reviewNote}</div>
+        )}
+
+        {demand.proof && (demand.proof.attachmentUrl || demand.proof.answer) && (
+          <div style={{ marginBottom: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10, fontSize: 12.5 }}>
+            <div style={{ color: C.mutedDim, fontWeight: 700, textTransform: "uppercase", fontSize: 10.5, marginBottom: 4 }}>Comprovação enviada</div>
+            {demand.proof.attachmentUrl && (
+              <a href={demand.proof.attachmentUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, display: "flex", alignItems: "center", gap: 4, textDecoration: "none", marginBottom: 3 }}>
+                <Paperclip size={12} /> {demand.proof.attachmentUrl}
+              </a>
+            )}
+            {demand.proof.answer && <div style={{ color: C.text }}>{demand.proofQuestion ? `"${demand.proofQuestion}" → ` : ""}{demand.proof.answer}</div>}
+            {role === "admin" && demand.proofStatus === "enviada" && (
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <Btn style={{ fontSize: 12, padding: "6px 10px" }} onClick={approveProof}><CheckCircle2 size={12} /> Aprovar</Btn>
+                <Btn variant="danger" style={{ fontSize: 12, padding: "6px 10px" }} onClick={reproveProof}>Reprovar</Btn>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 10, fontSize: 12.5, color: C.muted, display: "flex", alignItems: "center", gap: 8 }}>
+          <span>Responsável: <b style={{ color: assignees.length ? C.text : C.mutedDim }}>{assignees.length ? assignees.map((a) => a.name).join(", ") : "não atribuído"}</b></span>
+          {onNotify && assignees.length > 0 && (
+            <button onClick={onNotify} style={{ background: "none", border: "none", color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, fontSize: 12 }} title="Notificar responsáveis">
+              <Send size={12} /> Notificar
+            </button>
           )}
         </div>
-      )}
 
-      <div style={{ marginTop: 8, fontSize: 11.5, color: C.muted, display: "flex", alignItems: "center", gap: 8 }}>
-        <span>Responsável: <b style={{ color: assignees.length ? C.text : C.mutedDim }}>{assignees.length ? assignees.map((a) => a.name).join(", ") : "não atribuído"}</b></span>
-        {onNotify && assignees.length > 0 && (
-          <button onClick={onNotify} style={{ background: "none", border: "none", color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, fontSize: 11 }} title="Notificar responsáveis">
-            <Send size={11} /> Notificar
+        {demand.actions.length > 0 && (
+          <div style={{ marginBottom: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            {demand.actions.map((a) => (
+              <div key={a.id} style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>
+                <span style={{ color: C.teal, fontFamily: "'JetBrains Mono', monospace" }}>{a.date}</span> · <b style={{ color: C.text }}>{a.type}</b> — {a.description}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showAction ? (
+          <div style={{ marginBottom: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            <input style={{ ...inputStyle, marginBottom: 6, fontSize: 13 }} placeholder="Tipo de ação (ex: Ajuste de budget, Ativação Hits)" value={actionType} onChange={(e) => setActionType(e.target.value)} />
+            <textarea style={{ ...inputStyle, marginBottom: 6, fontSize: 13, minHeight: 50 }} placeholder="Descrição da ação realizada" value={actionDesc} onChange={(e) => setActionDesc(e.target.value)} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <Btn style={{ fontSize: 12, padding: "6px 10px" }} onClick={addAction}>Salvar</Btn>
+              <Btn variant="ghost" style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => setShowAction(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setShowAction(true)} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 10, padding: 0, display: "block" }}>
+            + Registrar ação
           </button>
         )}
-      </div>
 
-      {demand.actions.length > 0 && (
-        <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-          {demand.actions.map((a) => (
-            <div key={a.id} style={{ fontSize: 11, color: C.muted, marginBottom: 3 }}>
-              <span style={{ color: C.teal, fontFamily: "'JetBrains Mono', monospace" }}>{a.date}</span> · <b style={{ color: C.text }}>{a.type}</b> — {a.description}
+        {demand.requiresProof && !proofSatisfied && !showProofForm && (
+          <button onClick={() => setShowProofForm(true)} style={{ background: "none", border: "none", color: C.amber, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 10, padding: 0, display: "flex", alignItems: "center", gap: 4 }}>
+            <Paperclip size={13} /> Concluir com comprovação
+          </button>
+        )}
+
+        {showProofForm && (
+          <div style={{ marginBottom: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10, background: C.surface2, borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
+              <Paperclip size={13} /> Comprovação necessária para concluir
             </div>
-          ))}
-        </div>
-      )}
-
-      {showAction ? (
-        <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-          <input style={{ ...inputStyle, marginBottom: 6, fontSize: 12 }} placeholder="Tipo de ação (ex: Ajuste de budget, Ativação Hits)" value={actionType} onChange={(e) => setActionType(e.target.value)} />
-          <textarea style={{ ...inputStyle, marginBottom: 6, fontSize: 12, minHeight: 50 }} placeholder="Descrição da ação realizada" value={actionDesc} onChange={(e) => setActionDesc(e.target.value)} />
-          <div style={{ display: "flex", gap: 6 }}>
-            <Btn style={{ fontSize: 11.5, padding: "6px 10px" }} onClick={addAction}>Salvar</Btn>
-            <Btn variant="ghost" style={{ fontSize: 11.5, padding: "6px 10px" }} onClick={() => setShowAction(false)}>Cancelar</Btn>
+            {demand.proofQuestion && <div style={{ fontSize: 13, color: C.muted, marginBottom: 6 }}>{demand.proofQuestion}</div>}
+            <input style={{ ...inputStyle, marginBottom: 6, fontSize: 13 }} placeholder="Link do print/anexo (Drive, Fotos, etc.)" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} />
+            <textarea style={{ ...inputStyle, marginBottom: 6, fontSize: 13, minHeight: 50 }} placeholder="Resposta / confirmação" value={proofAnswer} onChange={(e) => setProofAnswer(e.target.value)} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <Btn style={{ fontSize: 12, padding: "6px 10px" }} onClick={submitProof}>Enviar e concluir</Btn>
+              <Btn variant="ghost" style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => setShowProofForm(false)}>Cancelar</Btn>
+            </div>
           </div>
-        </div>
-      ) : (
-        <button onClick={() => setShowAction(true)} style={{ background: "none", border: "none", color: C.brand, fontSize: 11.5, fontWeight: 600, cursor: "pointer", marginTop: 8, padding: 0 }}>
-          + Registrar ação
-        </button>
-      )}
-
-      {demand.requiresProof && !proofSatisfied && !showProofForm && (
-        <button onClick={() => setShowProofForm(true)} style={{ background: "none", border: "none", color: C.amber, fontSize: 11.5, fontWeight: 600, cursor: "pointer", marginTop: 8, padding: 0, display: "flex", alignItems: "center", gap: 4 }}>
-          <Paperclip size={12} /> Concluir com comprovação
-        </button>
-      )}
-
-      {showProofForm && (
-        <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8, background: C.surface2, borderRadius: 8, padding: 10 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: C.text, marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
-            <Paperclip size={12} /> Comprovação necessária para concluir
-          </div>
-          {demand.proofQuestion && <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{demand.proofQuestion}</div>}
-          <input style={{ ...inputStyle, marginBottom: 6, fontSize: 12 }} placeholder="Link do print/anexo (Drive, Fotos, etc.)" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} />
-          <textarea style={{ ...inputStyle, marginBottom: 6, fontSize: 12, minHeight: 50 }} placeholder="Resposta / confirmação" value={proofAnswer} onChange={(e) => setProofAnswer(e.target.value)} />
-          <div style={{ display: "flex", gap: 6 }}>
-            <Btn style={{ fontSize: 11.5, padding: "6px 10px" }} onClick={submitProof}>Enviar e concluir</Btn>
-            <Btn variant="ghost" style={{ fontSize: 11.5, padding: "6px 10px" }} onClick={() => setShowProofForm(false)}>Cancelar</Btn>
-          </div>
-        </div>
-      )}
-
-    </Ticket>
+        )}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+        <Btn variant="danger" onClick={() => { onArchive(); onClose(); }}><Archive size={14} /> Arquivar</Btn>
+        <Btn variant="ghost" onClick={onClose}>Fechar</Btn>
+      </div>
+    </Modal>
   );
 }
 
@@ -1916,6 +1964,9 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
   const [filterPerson, setFilterPerson] = useState("");
   const [draggedId, setDraggedId] = useState(null);
   const [dragOverStatus, setDragOverStatus] = useState(null);
+  const [dragOverCard, setDragOverCard] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const tagsByAlert = useMemo(() => {
     const map = {};
@@ -1984,19 +2035,42 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
       }
     }
   };
-  const remove = (id) => {
+  const deleteForever = (id) => {
     setDemands((ds) => ds.filter((x) => x.id !== id));
     db.deleteDemand(id).catch((e) => console.error(e));
   };
+  const archive = (d) => update({ ...d, archivedAt: Date.now() });
+  const restore = (d) => update({ ...d, archivedAt: null });
 
-  // Soltou o card numa coluna nova no board. Se for pra "Concluída" e a
-  // demanda exigir comprovação ainda pendente, o card fica onde está — o
-  // botão "Concluir com comprovação" no próprio card resolve isso.
-  const attemptStatusChange = (demand, newStatus) => {
-    if (!demand || demand.status === newStatus) return;
-    const proofSatisfied = !demand.requiresProof || ["enviada", "aprovada"].includes(demand.proofStatus);
-    if (newStatus === "concluida" && !proofSatisfied) return;
-    update({ ...demand, status: newStatus });
+  // Soltou o card numa coluna (com ou sem um card-alvo específico, pra
+  // reordenar dentro da coluna). Se for pra "Concluída" e a demanda exigir
+  // comprovação ainda pendente, o card fica onde está — o botão "Concluir
+  // com comprovação" no próprio card resolve isso.
+  const dropInto = (statusId, columnItems, draggedIdVal, targetId, before) => {
+    const dragged = demands.find((d) => d.id === draggedIdVal);
+    if (!dragged) return;
+    if (statusId === "concluida" && dragged.status !== "concluida") {
+      const proofSatisfied = !dragged.requiresProof || ["enviada", "aprovada"].includes(dragged.proofStatus);
+      if (!proofSatisfied) return;
+    }
+    const list = columnItems.filter((d) => d.id !== draggedIdVal);
+    let newOrder;
+    if (list.length === 0) {
+      newOrder = 0;
+    } else {
+      const idx = targetId ? list.findIndex((d) => d.id === targetId) : -1;
+      if (idx === -1) {
+        newOrder = (list[list.length - 1].boardOrder ?? 0) + 1;
+      } else {
+        const prev = before ? list[idx - 1] : list[idx];
+        const next = before ? list[idx] : list[idx + 1];
+        const prevOrder = prev ? (prev.boardOrder ?? 0) : (next ? (next.boardOrder ?? 0) - 1 : 0);
+        const nextOrder = next ? (next.boardOrder ?? 0) : (prev ? (prev.boardOrder ?? 0) + 1 : 1);
+        newOrder = (prevOrder + nextOrder) / 2;
+      }
+    }
+    if (dragged.status === statusId && dragged.boardOrder === newOrder) return;
+    update({ ...dragged, status: statusId, boardOrder: newOrder });
   };
 
   const generateDashes = () => {
@@ -2019,7 +2093,10 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
     }
   };
 
-  const saveNew = (d) => {
+  const saveNew = (draft) => {
+    const columnItems = demands.filter((x) => x.status === draft.status && !x.archivedAt);
+    const boardOrder = columnItems.length ? Math.max(...columnItems.map((x) => x.boardOrder ?? 0)) + 1 : 0;
+    const d = { ...draft, boardOrder };
     setDemands((ds) => [...ds, d]);
     setShowForm(false);
     db.insertDemand(d)
@@ -2040,8 +2117,11 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
   };
 
   let visibleDemands = role === "admin" ? demands : demands.filter((d) => (d.assigneeIds || []).includes(currentUserId));
+  visibleDemands = visibleDemands.filter((d) => !d.archivedAt);
   if (role === "admin" && filterTag) visibleDemands = visibleDemands.filter((d) => (tagsByAlert[d.alertId] || []).includes(filterTag));
   if (role === "admin" && filterPerson) visibleDemands = visibleDemands.filter((d) => (d.assigneeIds || []).includes(filterPerson));
+  const archivedDemands = demands.filter((d) => d.archivedAt).sort((a, b) => b.archivedAt - a.archivedAt);
+  const expandedDemand = expandedId ? demands.find((d) => d.id === expandedId) : null;
 
   return (
     <div>
@@ -2064,7 +2144,7 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
         </div>
       )}
       {role === "admin" && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <select style={{ ...inputStyle, width: "auto" }} value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
             <option value="">Todas as tags</option>
             {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -2073,11 +2153,30 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
             <option value="">Todas as pessoas</option>
             {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
+          {archivedDemands.length > 0 && (
+            <button onClick={() => setShowArchived((v) => !v)} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, marginLeft: "auto" }}>
+              <Archive size={13} /> {showArchived ? "Ocultar" : "Ver"} arquivadas ({archivedDemands.length})
+            </button>
+          )}
+        </div>
+      )}
+      {showArchived && role === "admin" && (
+        <div style={{ marginBottom: 20, border: `1px dashed ${C.border}`, borderRadius: 10, padding: 14 }}>
+          <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", marginBottom: 10 }}>Arquivadas</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {archivedDemands.map((d) => (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: C.text }}>
+                <span style={{ flex: 1 }}>{d.title} <span style={{ color: C.muted }}>· {clients.find((c) => c.id === d.clientId)?.name}</span></span>
+                <button onClick={() => restore(d)} style={{ background: "none", border: "none", color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}><ArchiveRestore size={13} /> Restaurar</button>
+                <button onClick={() => { if (window.confirm(`Excluir "${d.title}" definitivamente? Não dá pra desfazer.`)) deleteForever(d.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 12 }}>Excluir de vez</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
         {STATUSES.map((s) => {
-          const items = visibleDemands.filter((d) => d.status === s.id);
+          const items = visibleDemands.filter((d) => d.status === s.id).sort((a, b) => (a.boardOrder ?? 0) - (b.boardOrder ?? 0));
           const isDragOver = dragOverStatus === s.id;
           return (
             <div
@@ -2087,8 +2186,9 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
               onDrop={(e) => {
                 e.preventDefault();
                 const id = e.dataTransfer.getData("text/plain") || draggedId;
-                attemptStatusChange(demands.find((d) => d.id === id), s.id);
+                dropInto(s.id, items, id, null, true);
                 setDragOverStatus(null);
+                setDragOverCard(null);
                 setDraggedId(null);
               }}
               style={{ background: isDragOver ? C.surface2 : "transparent", borderRadius: 10, padding: isDragOver ? 6 : 0, transition: "background .1s" }}
@@ -2099,11 +2199,16 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
               {items.map((d) => (
                 <DemandCard
                   key={d.id} demand={d} client={clients.find((c) => c.id === d.clientId)} team={team}
-                  onUpdate={update} onDelete={remove} onNotify={role === "admin" ? () => notifyAboutDemand(d) : null} role={role}
-                  tags={(tagsByAlert[d.alertId] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
-                  themeGroups={themeGroups}
+                  onOpen={() => setExpandedId(d.id)} onArchive={() => archive(d)}
                   demandTypes={demandTypes}
                   onDragStart={setDraggedId}
+                  onCardDragOver={(id, before) => setDragOverCard({ id, before })}
+                  onCardDrop={(draggedIdVal, targetId, before) => {
+                    dropInto(s.id, items, draggedIdVal, targetId, before);
+                    setDragOverCard(null);
+                    setDraggedId(null);
+                  }}
+                  dragHighlight={dragOverCard?.id === d.id ? (dragOverCard.before ? "before" : "after") : null}
                 />
               ))}
             </div>
@@ -2111,6 +2216,16 @@ function DemandsView({ clients, demands, setDemands, team, notifications, setNot
         })}
       </div>
       {showForm && <DemandForm clients={clients} team={team} demandTypes={demandTypes} demandTypeFields={demandTypeFields} onClose={() => setShowForm(false)} onSave={saveNew} />}
+      {expandedDemand && (
+        <DemandDetailModal
+          demand={expandedDemand} client={clients.find((c) => c.id === expandedDemand.clientId)} team={team}
+          onUpdate={update} onArchive={() => archive(expandedDemand)} onNotify={role === "admin" ? () => notifyAboutDemand(expandedDemand) : null} role={role}
+          tags={(tagsByAlert[expandedDemand.alertId] || []).map((tid) => themes.find((t) => t.id === tid)).filter(Boolean)}
+          themeGroups={themeGroups}
+          demandTypes={demandTypes}
+          onClose={() => setExpandedId(null)}
+        />
+      )}
     </div>
   );
 }
