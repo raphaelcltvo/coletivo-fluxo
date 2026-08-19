@@ -169,8 +169,9 @@ function todayStr() {
 /* Evaluates time-based rules (days-before-due, fixed day of month) against current demands. */
 /* Régua com action="alerta": monta um Alerta manual em vez de só uma notificação. */
 function alertFromRule(rule, message, client, viewerId) {
+  const alertType = rule.alertType || "relatorio";
   return {
-    id: uid(), title: message, description: "", alertType: rule.alertType || "relatorio",
+    id: uid(), title: message, description: "", alertType, createsCard: alertType === "relatorio",
     clientIds: client ? [client.id] : [], destino: { memberIds: [rule._recipient] },
     scheduledDate: todayStr(), repeatFreq: "nenhuma", status: "agendado",
     createdBy: viewerId, createdAt: Date.now(), tagIds: rule.alertTagIds || [],
@@ -2537,7 +2538,7 @@ export default function App() {
           if (tagIds.length) setPostTags((ts) => [...ts, ...tagIds.map((themeId) => ({ postId: post.id, themeId }))]);
 
           const notifs = [];
-          if (alert.alertType === "relatorio") {
+          if (alert.createsCard) {
             for (const memberId of recipientIds) {
               const demand = {
                 id: uid(), title: alert.title, clientId, unitId: "", description: alert.description,
@@ -2562,7 +2563,7 @@ export default function App() {
           }
 
           const updatedAlert =
-            alert.alertType === "comunicacao" && alert.repeatFreq !== "nenhuma"
+            !alert.createsCard && alert.repeatFreq !== "nenhuma"
               ? { ...alert, scheduledDate: addAlertInterval(alert.scheduledDate, alert.repeatFreq), status: "agendado" }
               : { ...alert, status: "enviado" };
           await db.updateAlert(updatedAlert);

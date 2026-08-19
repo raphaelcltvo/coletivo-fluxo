@@ -648,6 +648,7 @@ const alertFromRow = (r) => ({
   scheduledDate: r.scheduled_date,
   repeatFreq: r.repeat_freq,
   status: r.status,
+  createsCard: r.creates_card,
   createdBy: r.created_by,
   createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
 });
@@ -662,6 +663,7 @@ const alertToRow = (a) => ({
   scheduled_date: a.scheduledDate,
   repeat_freq: a.repeatFreq || "nenhuma",
   status: a.status || "agendado",
+  creates_card: a.createsCard ?? true,
   created_by: a.createdBy,
 });
 

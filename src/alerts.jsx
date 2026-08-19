@@ -30,6 +30,7 @@ function AlertForm({ themes, themeGroups, clients, team, me, onCreate, onManageT
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [alertType, setAlertType] = useState("relatorio");
+  const [createsCard, setCreatesCard] = useState(true);
   const [clientIds, setClientIds] = useState([]);
   const [tagIds, setTagIds] = useState([]);
   const [everyone, setEveryone] = useState(false);
@@ -46,7 +47,7 @@ function AlertForm({ themes, themeGroups, clients, team, me, onCreate, onManageT
   const canSave = title.trim() && hasDestino && scheduledDate;
 
   const reset = () => {
-    setTitle(""); setDescription(""); setAlertType("relatorio"); setClientIds([]); setTagIds([]);
+    setTitle(""); setDescription(""); setAlertType("relatorio"); setCreatesCard(true); setClientIds([]); setTagIds([]);
     setEveryone(false); setRoles([]); setMemberIds([]); setRepeatFreq("nenhuma");
     setScheduledDate(new Date().toISOString().slice(0, 10)); setExpanded(false);
   };
@@ -55,7 +56,7 @@ function AlertForm({ themes, themeGroups, clients, team, me, onCreate, onManageT
     if (!canSave) return;
     setBusy(true);
     const alert = {
-      id: uid(), title: title.trim(), description: description.trim(), alertType,
+      id: uid(), title: title.trim(), description: description.trim(), alertType, createsCard,
       clientIds, destino, scheduledDate, repeatFreq, status: "agendado", createdBy: me.id, createdAt: Date.now(),
     };
     try {
@@ -112,14 +113,19 @@ function AlertForm({ themes, themeGroups, clients, team, me, onCreate, onManageT
         <div style={{ display: "flex", gap: 10 }}>
           <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: C.text, cursor: "pointer", flex: 1, background: alertType === "relatorio" ? C.surface2 : "transparent", border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
             <input type="radio" checked={alertType === "relatorio"} onChange={() => setAlertType("relatorio")} style={{ marginTop: 2 }} />
-            <span><b>Relatório</b> — avisa no sino, em Novidades, e vira um card em Demandas com comprovação obrigatória.</span>
+            <span><b>Relatório</b> — avisa no sino e em Threads.</span>
           </label>
           <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: C.text, cursor: "pointer", flex: 1, background: alertType === "comunicacao" ? C.surface2 : "transparent", border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
             <input type="radio" checked={alertType === "comunicacao"} onChange={() => setAlertType("comunicacao")} style={{ marginTop: 2 }} />
-            <span><b>Comunicação</b> — só aparece em Novidades, sem card e sem exigir ação.</span>
+            <span><b>Comunicação</b> — avisa no sino e em Threads.</span>
           </label>
         </div>
       </Field>
+
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.text, cursor: "pointer", background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, marginBottom: 14 }}>
+        <input type="checkbox" checked={createsCard} onChange={(e) => setCreatesCard(e.target.checked)} />
+        <span><b>Vira card em Demandas</b> ao disparar, com comprovação obrigatória — desmarque se for só um lembrete, sem exigir uma ação registrada.</span>
+      </label>
 
       <Field label="Descrição">
         <textarea style={{ ...inputStyle, minHeight: 70 }} value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -176,13 +182,14 @@ function AlertRow({ alert, tags, themeGroups, team, creator, pending, done }) {
             <span style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{alert.title}</span>
             <Tag tone={STATUS_TONE[alert.status]}>{STATUS_LABEL[alert.status]}</Tag>
             <Tag tone={alert.alertType === "relatorio" ? "brand" : "muted"}>{alert.alertType === "relatorio" ? "Relatório" : "Comunicação"}</Tag>
+            {alert.createsCard && <Tag tone="amber">Vira card</Tag>}
             {tags.map((t) => <Tag key={t.id} tone={resolveTone(t, themeGroups)}>{t.name}</Tag>)}
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
             Para: {destinoSummary(alert.destino, team)} · Criado por {creator?.name || "—"} · {timeAgo(alert.createdAt)}
             {alert.repeatFreq !== "nenhuma" && ` · repete ${alert.repeatFreq}`}
           </div>
-          {alert.alertType === "relatorio" && alert.status === "enviado" && (
+          {alert.createsCard && alert.status === "enviado" && (
             <div style={{ fontSize: 11.5, color: C.mutedDim, marginTop: 4 }}>
               {done} de {pending + done} concluído{pending + done !== 1 ? "s" : ""}
             </div>
